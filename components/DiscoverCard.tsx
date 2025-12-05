@@ -85,7 +85,6 @@ const ProviderRow = styled.div`
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 4px;
 `;
 
 const ProviderText = styled.span`
@@ -116,7 +115,7 @@ const Description = styled.p`
   overflow: hidden;
   max-width: 85%;
   color: #ccc;
-  margin-top: 8px; /* Reduced spacing */
+  margin-bottom: 8px; /* Reduced spacing */
 `;
 
 const Actions = styled.div`
@@ -381,7 +380,7 @@ const DiscoverCard: React.FC<Props> = ({ movie }) => {
                 </ProviderRow>
             )}
             
-            <Info style={{ marginTop: 10 }}>
+            <Info>
               <span>★ {movie.vote_average.toFixed(1)}</span>
               <span>{formattedDate}</span>
               {firstGenre && <span>• {firstGenre}</span>}

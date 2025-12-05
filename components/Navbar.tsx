@@ -8,7 +8,7 @@ const NavContainer = styled.nav`
   position: fixed;
   bottom: 0;
   width: 100%;
-  height: 65px;
+  height: 80px;
   background-color: #141414;
   display: flex;
   justify-content: space-around;
@@ -16,6 +16,7 @@ const NavContainer = styled.nav`
   border-top: 1px solid #222;
   z-index: 1000;
   overflow: visible;
+  padding-bottom: 15px;
 
   @media (min-width: 768px) {
     top: 0;
