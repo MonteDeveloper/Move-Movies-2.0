@@ -1,0 +1,5 @@
+{
+  "name": "Move Movies",
+  "description": "A cinema-themed movie discovery app using TMDB API with a TikTok-style discovery feed, rate limiting, and session persistence.",
+  "requestFramePermissions": []
+}
