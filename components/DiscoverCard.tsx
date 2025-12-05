@@ -205,14 +205,20 @@ const DiscoverCard: React.FC<Props> = ({ movie }) => {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const liked = isFavorite(movie.id);
   const watched = isWatched(movie.id);
-  const [imgSrc, setImgSrc] = useState<string | null>(null);
+  
+  // Initialize imgSrc directly to avoid initial null render which causes error
+  const [imgSrc, setImgSrc] = useState<string | null>(() => {
+    if (movie.poster_path) return `https://image.tmdb.org/t/p/original${movie.poster_path}`;
+    if (movie.backdrop_path) return `https://image.tmdb.org/t/p/original${movie.backdrop_path}`;
+    return null;
+  });
   
   // Tooltip Logic
   const [showTooltip, setShowTooltip] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Reset state on movie change
+    // Reset state on movie change or component remount with different movie
     setImageLoaded(false);
     setHasError(false);
     setShowTooltip(false);
@@ -305,7 +311,10 @@ const DiscoverCard: React.FC<Props> = ({ movie }) => {
   };
 
   const handleImageError = () => {
-     if (imgSrc && imgSrc.includes(movie.poster_path || '') && movie.backdrop_path) {
+     // If src is missing/empty, ignore error to prevent loop
+     if (!imgSrc) return;
+
+     if (movie.poster_path && imgSrc.includes(movie.poster_path) && movie.backdrop_path) {
          setImgSrc(`https://image.tmdb.org/t/p/original${movie.backdrop_path}`);
      } else {
          setHasError(true);
@@ -341,13 +350,15 @@ const DiscoverCard: React.FC<Props> = ({ movie }) => {
       {hasError ? (
           <Placeholder>{t('imageNotAvailable')}</Placeholder>
       ) : (
-          <BackgroundImage 
-            src={imgSrc || ''} 
-            alt={movie.title} 
-            onLoad={() => setImageLoaded(true)}
-            onError={handleImageError}
-            $loaded={imageLoaded}
-          />
+          imgSrc ? (
+            <BackgroundImage 
+              src={imgSrc} 
+              alt={movie.title} 
+              onLoad={() => setImageLoaded(true)}
+              onError={handleImageError}
+              $loaded={imageLoaded}
+            />
+          ) : null
       )}
 
       {showTooltip && (
@@ -380,7 +391,7 @@ const DiscoverCard: React.FC<Props> = ({ movie }) => {
                 </ProviderRow>
             )}
             
-            <Info>
+            <Info style={{ marginTop: 10 }}>
               <span>★ {movie.vote_average.toFixed(1)}</span>
               <span>{formattedDate}</span>
               {firstGenre && <span>• {firstGenre}</span>}
