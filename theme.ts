@@ -13,7 +13,7 @@ export const theme: ThemeType = {
   spacing: (factor: number) => `${factor * 8}px`,
 };
 
-export const GlobalStyles = createGlobalStyle<{ theme: ThemeType }>`
+export const GlobalStyles = createGlobalStyle`
   * {
     box-sizing: border-box;
     margin: 0;

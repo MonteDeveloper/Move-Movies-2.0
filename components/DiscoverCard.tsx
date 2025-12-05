@@ -206,6 +206,9 @@ const DiscoverCard: React.FC<Props> = ({ movie }) => {
   const liked = isFavorite(movie.id);
   const watched = isWatched(movie.id);
   
+  // Ref for the image to check cached status (Safari fix)
+  const imgRef = useRef<HTMLImageElement>(null);
+
   // Initialize imgSrc directly to avoid initial null render which causes error
   const [imgSrc, setImgSrc] = useState<string | null>(() => {
     if (movie.poster_path) return `https://image.tmdb.org/t/p/original${movie.poster_path}`;
@@ -222,15 +225,17 @@ const DiscoverCard: React.FC<Props> = ({ movie }) => {
     setImageLoaded(false);
     setHasError(false);
     setShowTooltip(false);
+    setProviders([]);
 
+    let url = null;
     if (movie.poster_path) {
-        setImgSrc(`https://image.tmdb.org/t/p/original${movie.poster_path}`);
+        url = `https://image.tmdb.org/t/p/original${movie.poster_path}`;
     } else if (movie.backdrop_path) {
-        setImgSrc(`https://image.tmdb.org/t/p/original${movie.backdrop_path}`);
+        url = `https://image.tmdb.org/t/p/original${movie.backdrop_path}`;
     } else {
-        setImgSrc(null);
         setHasError(true);
     }
+    setImgSrc(url);
 
     // Fetch providers lightly
     const fetchProviders = async () => {
@@ -238,26 +243,34 @@ const DiscoverCard: React.FC<Props> = ({ movie }) => {
         const p = await tmdbService.getWatchProviders(movie.id, movie.media_type || 'movie');
         if (p && p.flatrate) {
             setProviders(p.flatrate);
-        } else {
-            setProviders([]);
         }
       } catch (e) {
-        setProviders([]);
+        // ignore
       }
     };
     fetchProviders();
   }, [movie.id, movie.media_type, movie.poster_path, movie.backdrop_path]);
 
+  // Safari Fix: Check immediately if image is already loaded from cache
+  useEffect(() => {
+    if (imgRef.current && imgSrc) {
+      if (imgRef.current.complete && imgRef.current.naturalWidth > 0) {
+        setImageLoaded(true);
+      }
+    }
+  }, [imgSrc]);
+
   // Interaction / Tooltip Logic
   useEffect(() => {
-    if (hasOpenedDetail) return; // Don't show if user already knows to click
+    // Wait until detail opened OR image is loaded before starting the timer
+    if (hasOpenedDetail || !imageLoaded) return; 
 
     let timer: any;
     let cycleTimer: any;
     const observer = new IntersectionObserver(
         ([entry]) => {
-            if (entry.isIntersecting && !hasOpenedDetail) {
-                // User is looking at this card
+            if (entry.isIntersecting && !hasOpenedDetail && imageLoaded) {
+                // User is looking at this card AND image is loaded
                 timer = setTimeout(() => {
                     // Double check before showing
                     if (!hasOpenedDetail) {
@@ -275,7 +288,7 @@ const DiscoverCard: React.FC<Props> = ({ movie }) => {
                             }, 10000); 
                         }, 15000); 
                     }
-                }, 10000); // 10s inactivity
+                }, 10000); // 10s inactivity AFTER image load
             } else {
                 clearTimeout(timer);
                 clearInterval(cycleTimer);
@@ -294,7 +307,7 @@ const DiscoverCard: React.FC<Props> = ({ movie }) => {
         clearTimeout(timer);
         clearInterval(cycleTimer);
     };
-  }, [hasOpenedDetail]);
+  }, [hasOpenedDetail, imageLoaded]); // Added imageLoaded dependency
 
   const toggleLike = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -311,14 +324,13 @@ const DiscoverCard: React.FC<Props> = ({ movie }) => {
   };
 
   const handleImageError = () => {
-     // If src is missing/empty, ignore error to prevent loop
      if (!imgSrc) return;
 
      if (movie.poster_path && imgSrc.includes(movie.poster_path) && movie.backdrop_path) {
          setImgSrc(`https://image.tmdb.org/t/p/original${movie.backdrop_path}`);
      } else {
          setHasError(true);
-         setImageLoaded(true); // Stop skeleton
+         setImageLoaded(true); // Stop skeleton if error
      }
   };
 
@@ -352,6 +364,7 @@ const DiscoverCard: React.FC<Props> = ({ movie }) => {
       ) : (
           imgSrc ? (
             <BackgroundImage 
+              ref={imgRef}
               src={imgSrc} 
               alt={movie.title} 
               onLoad={() => setImageLoaded(true)}

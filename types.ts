@@ -1,4 +1,4 @@
-
+import 'styled-components';
 
 export interface Movie {
   id: number;
@@ -171,6 +171,11 @@ export interface ThemeType {
   border: string;
   borderRadius: string;
   spacing: (factor: number) => string;
+}
+
+// Augment styled-components DefaultTheme
+declare module 'styled-components' {
+  export interface DefaultTheme extends ThemeType {}
 }
 
 export const GENRES = [
