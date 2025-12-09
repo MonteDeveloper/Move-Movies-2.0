@@ -2,6 +2,8 @@ import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import LanguageDetector from 'i18next-browser-languagedetector';
 
+const loadingKeys = Array.from({ length: 20 }, (_, i) => `loading_msg_${i + 1}`);
+
 // English Translations
 const enTranslations = {
   "home": "Home",
@@ -74,6 +76,8 @@ const enTranslations = {
   "itemsSelected": "items selected",
   "include": "Include",
   "exclude": "Exclude",
+  "includedAbbr": "Inc",
+  "excludedAbbr": "Exc",
   "mode": "Mode",
   "runtime": "Runtime",
   "votes": "Votes",
@@ -132,7 +136,28 @@ const enTranslations = {
   "genre_878": "Sci-Fi",
   "genre_53": "Thriller",
   "genre_10752": "War",
-  "genre_37": "Western"
+  "genre_37": "Western",
+  // Loading Messages
+  "loading_msg_1": "Finding the perfect movie...",
+  "loading_msg_2": "Asking the director for the final cut...",
+  "loading_msg_3": "Popping the corn...",
+  "loading_msg_4": "Polishing the camera lens...",
+  "loading_msg_5": "Scanning the film archives...",
+  "loading_msg_6": "Setting up the projector...",
+  "loading_msg_7": "Auditioning the cast...",
+  "loading_msg_8": "Writing the screenplay...",
+  "loading_msg_9": "Scouting locations...",
+  "loading_msg_10": "Adjusting the lighting...",
+  "loading_msg_11": "Composing the soundtrack...",
+  "loading_msg_12": "Hiring stunt doubles...",
+  "loading_msg_13": "Reviewing the script...",
+  "loading_msg_14": "Preparing the red carpet...",
+  "loading_msg_15": "Checking sound levels...",
+  "loading_msg_16": "Designing the costumes...",
+  "loading_msg_17": "Editing the final scene...",
+  "loading_msg_18": "Calibrating the screen...",
+  "loading_msg_19": "Inviting the critics...",
+  "loading_msg_20": "Discovering hidden gems..."
 };
 
 // Italian Translations
@@ -207,6 +232,8 @@ const itTranslations = {
   "itemsSelected": "elementi selezionati",
   "include": "Includi",
   "exclude": "Escludi",
+  "includedAbbr": "Incl",
+  "excludedAbbr": "Escl",
   "mode": "Modalità",
   "runtime": "Durata",
   "votes": "Voti",
@@ -265,7 +292,28 @@ const itTranslations = {
   "genre_878": "Fantascienza",
   "genre_53": "Thriller",
   "genre_10752": "Guerra",
-  "genre_37": "Western"
+  "genre_37": "Western",
+  // Loading Messages
+  "loading_msg_1": "Cercando il film perfetto...",
+  "loading_msg_2": "Chiedendo al regista il montaggio finale...",
+  "loading_msg_3": "Preparando i popcorn...",
+  "loading_msg_4": "Lucidando l'obiettivo...",
+  "loading_msg_5": "Scansionando gli archivi...",
+  "loading_msg_6": "Montando il proiettore...",
+  "loading_msg_7": "Facendo il casting...",
+  "loading_msg_8": "Scrivendo la sceneggiatura...",
+  "loading_msg_9": "Cercando le location...",
+  "loading_msg_10": "Sistemando le luci...",
+  "loading_msg_11": "Componendo la colonna sonora...",
+  "loading_msg_12": "Assumendo gli stuntman...",
+  "loading_msg_13": "Revisionando il copione...",
+  "loading_msg_14": "Stendendo il tappeto rosso...",
+  "loading_msg_15": "Controllando l'audio...",
+  "loading_msg_16": "Disegnando i costumi...",
+  "loading_msg_17": "Montando la scena finale...",
+  "loading_msg_18": "Calibrando lo schermo...",
+  "loading_msg_19": "Invitando i critici...",
+  "loading_msg_20": "Scoprendo gemme nascoste..."
 };
 
 const resources = {

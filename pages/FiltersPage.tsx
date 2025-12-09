@@ -1,11 +1,9 @@
-
-
 import React, { useState, useRef, useEffect } from 'react';
 import styled from 'styled-components';
 import { useFilters } from '../contexts/FiltersContext';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { GENRES, COUNTRIES, ProviderInfo } from '../types';
+import { GENRES, COUNTRIES, ProviderInfo, FilterState, getGenreName } from '../types';
 import { getCountryName } from '../utils/formatLocal';
 import { useLanguage } from '../contexts/LanguageContext';
 import { tmdbService } from '../services/tmdbService';
@@ -99,11 +97,9 @@ const ChipContainer = styled.div`
   overflow-y: auto;
 `;
 
-const Chip = styled.div<{ $active: boolean; $exclude?: boolean }>`
+const Chip = styled.div<{ $isActive: boolean }>`
   padding: 10px 16px;
-  background: ${props => props.$active 
-    ? (props.$exclude ? '#d63031' : props.theme.primary) 
-    : '#333'};
+  background: ${props => props.$isActive ? props.theme.primary : '#333'};
   color: white;
   border-radius: 10px;
   font-size: 14px;
@@ -113,8 +109,23 @@ const Chip = styled.div<{ $active: boolean; $exclude?: boolean }>`
   border: 1px solid transparent;
 
   &:hover {
-    background: ${props => props.$active ? '' : '#444'};
+    background: ${props => props.$isActive ? props.theme.accent : '#444'};
   }
+`;
+
+const SummaryText = styled.div`
+  font-size: 12px;
+  color: ${({ theme }) => theme.textSecondary};
+  margin-bottom: 12px;
+  line-height: 1.4;
+  padding: 10px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 8px;
+`;
+
+const Highlight = styled.span<{ $type: 'inc' | 'exc' }>`
+  color: ${props => props.$type === 'inc' ? '#4cd137' : '#e84118'};
+  font-weight: bold;
 `;
 
 // --- SWITCH COMPONENT ---
@@ -251,27 +262,21 @@ const RangeValue = styled.div`
   font-size: 14px;
 `;
 
-// Major Providers List for grouping
-const MAIN_PROVIDERS_CONFIG = [
-  { name: "Netflix", keywords: ["Netflix"] },
-  { name: "Disney+", keywords: ["Disney"] },
-  { name: "Prime Video", keywords: ["Amazon", "Prime"] },
-  { name: "Apple TV", keywords: ["Apple"] },
-  { name: "Max", keywords: ["HBO", "Max"] },
-  { name: "Paramount+", keywords: ["Paramount"] },
-  { name: "Peacock", keywords: ["Peacock"] },
-  { name: "Crunchyroll", keywords: ["Crunchyroll"] },
-  { name: "Hulu", keywords: ["Hulu"] },
-  { name: "Now", keywords: ["Now"] },
-  { name: "Sky", keywords: ["Sky"] },
-  { name: "Rakuten", keywords: ["Rakuten"] },
-  { name: "YouTube Premium", keywords: ["YouTube Premium", "YouTube Red"] },
+// STRICT PROVIDER GROUPS (Explicit TMDB IDs)
+const PROVIDER_GROUPS = [
+  { name: "Netflix", ids: [8] },
+  { name: "Disney+", ids: [337] },
+  { name: "Prime Video", ids: [119, 9] }, // 119 = Flatrate, 9 = Rent/Buy Video
+  { name: "Apple TV+", ids: [350] },
+  { name: "Max", ids: [384, 1899] }, // 384 = Max, 1899 = Max Amazon Channel
+  { name: "Paramount+", ids: [531] },
+  { name: "Peacock", ids: [386] },
+  { name: "Crunchyroll", ids: [283] },
+  { name: "Hulu", ids: [15] },
+  { name: "Discovery+", ids: [520] },
+  { name: "YouTube Premium", ids: [188] },
+  { name: "Rakuten Viki", ids: [344] }
 ];
-
-interface GroupedProvider {
-    name: string;
-    ids: number[];
-}
 
 const FiltersPage: React.FC = () => {
   const { filters, setFilters } = useFilters();
@@ -279,9 +284,10 @@ const FiltersPage: React.FC = () => {
   const { t } = useTranslation();
   const { currentLanguage } = useLanguage();
 
-  const [localFilters, setLocalFilters] = useState(filters);
-  const [groupedProviders, setGroupedProviders] = useState<GroupedProvider[]>([]);
-  const [loadingProviders, setLoadingProviders] = useState(true);
+  const [localFilters, setLocalFilters] = useState<FilterState>(filters);
+  const [genreUiMode, setGenreUiMode] = useState<'include' | 'exclude'>('include');
+  const [providerUiMode, setProviderUiMode] = useState<'include' | 'exclude'>('include');
+  const [countryUiMode, setCountryUiMode] = useState<'include' | 'exclude'>('include');
 
   const minYear = 1960;
   const maxYear = new Date().getFullYear();
@@ -290,82 +296,148 @@ const FiltersPage: React.FC = () => {
   
   const starContainerRef = useRef<HTMLDivElement>(null);
 
-  // Fetch Providers on mount
-  useEffect(() => {
-    let mounted = true;
-    const fetchProviders = async () => {
-      try {
-        const providers = await tmdbService.getAvailableProviders();
-        if (mounted) {
-            // Group logic
-            const groups: GroupedProvider[] = [];
-            const processedIds = new Set<number>();
-
-            MAIN_PROVIDERS_CONFIG.forEach(config => {
-                const matched = providers.filter(p => 
-                    config.keywords.some(k => p.provider_name.toLowerCase().includes(k.toLowerCase()))
-                );
-                
-                if (matched.length > 0) {
-                    const ids = matched.map(m => m.provider_id);
-                    ids.forEach(id => processedIds.add(id));
-                    groups.push({ name: config.name, ids });
-                }
-            });
-
-            // Add any other provider that wasn't matched but might be relevant? 
-            // Request said "Reduce to main providers", so we skip the rest to keep it clean.
-            
-            setGroupedProviders(groups);
-            setLoadingProviders(false);
-        }
-      } catch (e) {
-        if (mounted) setLoadingProviders(false);
-      }
-    };
-    fetchProviders();
-    return () => { mounted = false; };
-  }, []);
-
   const handleChange = (key: string, value: any) => {
     setLocalFilters(prev => ({ ...prev, [key]: value }));
   };
 
+  // GENRE LOGIC
   const toggleGenre = (id: number) => {
-    const current = localFilters.withGenres;
-    if (current.includes(id)) {
-      handleChange('withGenres', current.filter(g => g !== id));
+    if (genreUiMode === 'include') {
+        const current = localFilters.includeGenres;
+        const other = localFilters.excludeGenres;
+        
+        if (current.includes(id)) {
+            handleChange('includeGenres', current.filter(g => g !== id));
+        } else {
+            handleChange('includeGenres', [...current, id]);
+            // Enforce mutual exclusivity
+            if (other.includes(id)) {
+                handleChange('excludeGenres', other.filter(g => g !== id));
+            }
+        }
     } else {
-      handleChange('withGenres', [...current, id]);
+        const current = localFilters.excludeGenres;
+        const other = localFilters.includeGenres;
+
+        if (current.includes(id)) {
+            handleChange('excludeGenres', current.filter(g => g !== id));
+        } else {
+            handleChange('excludeGenres', [...current, id]);
+            // Enforce mutual exclusivity
+            if (other.includes(id)) {
+                handleChange('includeGenres', other.filter(g => g !== id));
+            }
+        }
     }
   };
 
-  const toggleProviderGroup = (group: GroupedProvider) => {
-    const current = localFilters.withProviders;
-    // Check if group is active (all IDs present, or just some?)
-    // Simpler logic: if first ID is present, we consider it active and remove all.
-    // If not present, we add all.
-    const isPresent = group.ids.some(id => current.includes(id));
-
-    if (isPresent) {
-        // Remove all IDs belonging to this group
-        handleChange('withProviders', current.filter(id => !group.ids.includes(id)));
-    } else {
-        // Add all IDs of this group, avoiding duplicates
-        const newIds = Array.from(new Set([...current, ...group.ids]));
-        handleChange('withProviders', newIds);
-    }
+  const isGenreSelected = (id: number) => {
+      if (genreUiMode === 'include') {
+          return localFilters.includeGenres.includes(id);
+      } else {
+          return localFilters.excludeGenres.includes(id);
+      }
   };
 
+  // PROVIDER LOGIC
+  const toggleProviderGroup = (ids: number[]) => {
+      if (providerUiMode === 'include') {
+          const current = localFilters.includeProviders;
+          const other = localFilters.excludeProviders;
+          
+          // Logic: if any of the group IDs are selected, deselect them all.
+          // Otherwise, select them all.
+          const isSelected = ids.some(id => current.includes(id));
+
+          if (isSelected) {
+              handleChange('includeProviders', current.filter(id => !ids.includes(id)));
+          } else {
+              const newIds = Array.from(new Set([...current, ...ids]));
+              handleChange('includeProviders', newIds);
+              // Mutual exclusivity
+              const toRemove = ids.filter(id => other.includes(id));
+              if (toRemove.length > 0) {
+                  handleChange('excludeProviders', other.filter(id => !ids.includes(id)));
+              }
+          }
+      } else {
+          const current = localFilters.excludeProviders;
+          const other = localFilters.includeProviders;
+
+          const isSelected = ids.some(id => current.includes(id));
+
+          if (isSelected) {
+              handleChange('excludeProviders', current.filter(id => !ids.includes(id)));
+          } else {
+              const newIds = Array.from(new Set([...current, ...ids]));
+              handleChange('excludeProviders', newIds);
+              // Mutual exclusivity
+              const toRemove = ids.filter(id => other.includes(id));
+              if (toRemove.length > 0) {
+                  handleChange('includeProviders', other.filter(id => !ids.includes(id)));
+              }
+          }
+      }
+  };
+
+  const isProviderGroupSelected = (ids: number[]) => {
+      if (providerUiMode === 'include') {
+          return ids.some(id => localFilters.includeProviders.includes(id));
+      } else {
+          return ids.some(id => localFilters.excludeProviders.includes(id));
+      }
+  };
+
+  const getProviderGroupSummary = (list: number[]) => {
+      const names: string[] = [];
+      PROVIDER_GROUPS.forEach(group => {
+          if (group.ids.some(id => list.includes(id))) {
+              if (!names.includes(group.name)) names.push(group.name);
+          }
+      });
+      return names;
+  };
+
+  // COUNTRY LOGIC
   const toggleCountry = (iso: string) => {
-    const current = localFilters.withCountries;
-    if (current.includes(iso)) {
-      handleChange('withCountries', current.filter(c => c !== iso));
+    if (countryUiMode === 'include') {
+        const current = localFilters.includeCountries;
+        const other = localFilters.excludeCountries;
+        
+        if (current.includes(iso)) {
+            handleChange('includeCountries', current.filter(c => c !== iso));
+        } else {
+            handleChange('includeCountries', [...current, iso]);
+            // Enforce mutual exclusivity
+            if (other.includes(iso)) {
+                handleChange('excludeCountries', other.filter(c => c !== iso));
+            }
+        }
     } else {
-      handleChange('withCountries', [...current, iso]);
+        const current = localFilters.excludeCountries;
+        const other = localFilters.includeCountries;
+
+        if (current.includes(iso)) {
+            handleChange('excludeCountries', current.filter(c => c !== iso));
+        } else {
+            handleChange('excludeCountries', [...current, iso]);
+            // Enforce mutual exclusivity
+            if (other.includes(iso)) {
+                handleChange('includeCountries', other.filter(c => c !== iso));
+            }
+        }
     }
   };
 
+  const isCountrySelected = (iso: string) => {
+      if (countryUiMode === 'include') {
+          return localFilters.includeCountries.includes(iso);
+      } else {
+          return localFilters.excludeCountries.includes(iso);
+      }
+  };
+
+  // RANGE LOGIC
   const handleYearChange = (index: 0 | 1, value: number) => {
     const newRange = [...localFilters.yearRange] as [number, number];
     if (index === 0) {
@@ -430,6 +502,26 @@ const FiltersPage: React.FC = () => {
       val = Math.round(val * 2) / 2;
       
       handleChange('voteAverageMin', val);
+  };
+
+  const renderSummary = (includedNames: string[], excludedNames: string[]) => {
+      if (includedNames.length === 0 && excludedNames.length === 0) return null;
+      return (
+          <SummaryText>
+              {includedNames.length > 0 && (
+                  <div>
+                      <Highlight $type="inc">{t('includedAbbr')}: </Highlight> 
+                      {includedNames.join(', ')}
+                  </div>
+              )}
+              {excludedNames.length > 0 && (
+                  <div>
+                      <Highlight $type="exc">{t('excludedAbbr')}: </Highlight> 
+                      {excludedNames.join(', ')}
+                  </div>
+              )}
+          </SummaryText>
+      );
   };
 
   return (
@@ -546,25 +638,30 @@ const FiltersPage: React.FC = () => {
           </div>
            <SwitchContainer>
             <SwitchOption 
-               $active={localFilters.genreMode === 'include'} 
-               onClick={() => handleChange('genreMode', 'include')}
+               $active={genreUiMode === 'include'} 
+               onClick={() => setGenreUiMode('include')}
             >
               {t('include')}
             </SwitchOption>
             <SwitchOption 
-               $active={localFilters.genreMode === 'exclude'} 
-               onClick={() => handleChange('genreMode', 'exclude')}
+               $active={genreUiMode === 'exclude'} 
+               onClick={() => setGenreUiMode('exclude')}
             >
               {t('exclude')}
             </SwitchOption>
           </SwitchContainer>
         </SectionHeader>
+        
+        {renderSummary(
+            localFilters.includeGenres.map(id => t(`genre_${id}`, getGenreName(id))),
+            localFilters.excludeGenres.map(id => t(`genre_${id}`, getGenreName(id)))
+        )}
+
         <ChipContainer>
           {GENRES.map(g => (
             <Chip 
               key={g.id} 
-              $active={localFilters.withGenres.includes(g.id)}
-              $exclude={localFilters.genreMode === 'exclude'}
+              $isActive={isGenreSelected(g.id)}
               onClick={() => toggleGenre(g.id)}
             >
               {t(`genre_${g.id}`, g.name)}
@@ -581,30 +678,34 @@ const FiltersPage: React.FC = () => {
           </div>
           <SwitchContainer>
             <SwitchOption 
-               $active={localFilters.providerMode === 'include'} 
-               onClick={() => handleChange('providerMode', 'include')}
+               $active={providerUiMode === 'include'} 
+               onClick={() => setProviderUiMode('include')}
             >
               {t('include')}
             </SwitchOption>
             <SwitchOption 
-               $active={localFilters.providerMode === 'exclude'} 
-               onClick={() => handleChange('providerMode', 'exclude')}
+               $active={providerUiMode === 'exclude'} 
+               onClick={() => setProviderUiMode('exclude')}
             >
               {t('exclude')}
             </SwitchOption>
           </SwitchContainer>
         </SectionHeader>
+        
+        {renderSummary(
+            getProviderGroupSummary(localFilters.includeProviders),
+            getProviderGroupSummary(localFilters.excludeProviders)
+        )}
+
         <ChipContainer>
-          {loadingProviders ? <div style={{color: '#888'}}>Loading providers...</div> : groupedProviders.map(group => {
-            // Check if active (if any of the group's IDs is selected, we show as active, since we select all on click)
-            const isActive = group.ids.some(id => localFilters.withProviders.includes(id));
+          {PROVIDER_GROUPS.map(group => {
+            const isActive = isProviderGroupSelected(group.ids);
             
             return (
                 <Chip 
                   key={group.name} 
-                  $active={isActive}
-                  $exclude={localFilters.providerMode === 'exclude'}
-                  onClick={() => toggleProviderGroup(group)}
+                  $isActive={isActive}
+                  onClick={() => toggleProviderGroup(group.ids)}
                 >
                   {group.name}
                 </Chip>
@@ -621,25 +722,30 @@ const FiltersPage: React.FC = () => {
           </div>
           <SwitchContainer>
             <SwitchOption 
-               $active={localFilters.countryMode === 'include'} 
-               onClick={() => handleChange('countryMode', 'include')}
+               $active={countryUiMode === 'include'} 
+               onClick={() => setCountryUiMode('include')}
             >
               {t('include')}
             </SwitchOption>
             <SwitchOption 
-               $active={localFilters.countryMode === 'exclude'} 
-               onClick={() => handleChange('countryMode', 'exclude')}
+               $active={countryUiMode === 'exclude'} 
+               onClick={() => setCountryUiMode('exclude')}
             >
               {t('exclude')}
             </SwitchOption>
           </SwitchContainer>
         </SectionHeader>
+        
+        {renderSummary(
+            localFilters.includeCountries.map(iso => getCountryName(iso, currentLanguage)),
+            localFilters.excludeCountries.map(iso => getCountryName(iso, currentLanguage))
+        )}
+
         <ChipContainer>
            {COUNTRIES.map(c => (
              <Chip 
                key={c.iso}
-               $active={localFilters.withCountries.includes(c.iso)}
-               $exclude={localFilters.countryMode === 'exclude'}
+               $isActive={isCountrySelected(c.iso)}
                onClick={() => toggleCountry(c.iso)}
              >
                {getCountryName(c.iso, currentLanguage)}

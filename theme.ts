@@ -22,8 +22,8 @@ export const GlobalStyles = createGlobalStyle`
 
   body {
     font-family: 'Inter', sans-serif;
-    background-color: ${({ theme }) => theme.background};
-    color: ${({ theme }) => theme.text};
+    background-color: ${({ theme }: { theme: ThemeType }) => theme.background};
+    color: ${({ theme }: { theme: ThemeType }) => theme.text};
     -webkit-font-smoothing: antialiased;
     overflow-x: hidden;
   }

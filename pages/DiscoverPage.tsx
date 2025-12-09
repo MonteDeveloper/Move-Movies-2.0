@@ -1,7 +1,5 @@
-
-
 import React, { useEffect, useRef, useState } from 'react';
-import styled from 'styled-components';
+import styled, { keyframes } from 'styled-components';
 import { useDiscoverCache } from '../contexts/DiscoverCacheContext';
 import DiscoverCard from '../components/DiscoverCard';
 import { Link } from 'react-router-dom';
@@ -30,14 +28,97 @@ const FilterButton = styled(Link)`
   border: 1px solid rgba(255,255,255,0.2);
 `;
 
-const Loading = styled.div`
+const LoadingContainer = styled.div`
   height: 100vh;
   display: flex;
+  flex-direction: column;
   justify-content: center;
   align-items: center;
   color: ${({ theme }) => theme.textSecondary};
   scroll-snap-align: start;
+  background: black;
 `;
+
+const rotate = keyframes`
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+`;
+
+const LoaderIcon = styled.div`
+  font-size: 48px;
+  color: ${({ theme }) => theme.primary};
+  margin-bottom: 24px;
+  animation: ${rotate} 2s linear infinite;
+`;
+
+const LoaderText = styled.div`
+  font-size: 16px;
+  color: #ccc;
+  text-align: center;
+  max-width: 80%;
+  min-height: 24px;
+  animation: fadeIn 0.5s ease-in-out;
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(5px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+`;
+
+const DynamicLoader: React.FC = () => {
+  const { t } = useTranslation();
+  const [msgKey, setMsgKey] = useState<string>('loading_msg_1');
+  const availableIndices = useRef<number[]>([]);
+
+  useEffect(() => {
+    // Fill indices 0-19
+    if (availableIndices.current.length === 0) {
+      availableIndices.current = Array.from({ length: 20 }, (_, i) => i);
+    }
+
+    const pickNextMessage = () => {
+      if (availableIndices.current.length === 0) {
+        availableIndices.current = Array.from({ length: 20 }, (_, i) => i);
+      }
+      
+      const randomIndex = Math.floor(Math.random() * availableIndices.current.length);
+      const val = availableIndices.current[randomIndex];
+      
+      // Remove used index
+      availableIndices.current.splice(randomIndex, 1);
+      
+      setMsgKey(`loading_msg_${val + 1}`);
+    };
+
+    // Pick first message immediately
+    pickNextMessage();
+
+    let timeoutId: any;
+    
+    const scheduleNext = () => {
+      const delay = Math.floor(Math.random() * (8000 - 3000 + 1)) + 3000; // 3s to 8s
+      timeoutId = setTimeout(() => {
+        pickNextMessage();
+        scheduleNext();
+      }, delay);
+    };
+
+    scheduleNext();
+
+    return () => clearTimeout(timeoutId);
+  }, []);
+
+  return (
+    <LoadingContainer>
+      <LoaderIcon>
+        <i className="fa-solid fa-circle-notch"></i>
+      </LoaderIcon>
+      <LoaderText key={msgKey}>
+        {t(msgKey)}
+      </LoaderText>
+    </LoadingContainer>
+  );
+};
 
 const DiscoverPage: React.FC = () => {
   const { t } = useTranslation();
@@ -117,7 +198,7 @@ const DiscoverPage: React.FC = () => {
             <DiscoverCard movie={movie} />
           </div>
         ))}
-        {isLoading && <Loading>{t('loadingContent')}</Loading>}
+        {isLoading && <DynamicLoader />}
       </Container>
     </>
   );

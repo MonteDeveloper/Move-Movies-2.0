@@ -1,5 +1,3 @@
-
-
 import { rateLimiter } from './rateLimiter';
 import { FilterState, MediaDetail, Movie, Season, WatchProviders, Review, CrewMember, CastMember, GENRES, COUNTRIES, ProviderInfo } from '../types';
 
@@ -109,22 +107,19 @@ class TmdbService {
     };
 
     // GENRE LOGIC
-    // New Logic: If array has items, apply filter based on mode. If empty, apply nothing.
-    if (filters.withGenres.length > 0) {
-        if (filters.genreMode === 'include') {
-            params.with_genres = filters.withGenres.join('|'); // OR logic for user friendliness, or AND? Usually AND for genres in filters, but OR is often expected in discovery. TMDB uses comma for AND, pipe for OR. Let's stick to pipe (OR) as per typical discovery apps, or maybe AND? Stick to previous logic (pipe).
-        } else {
-            params.without_genres = filters.withGenres.join(',');
-        }
+    if (filters.includeGenres.length > 0) {
+      params.with_genres = filters.includeGenres.join('|'); // OR for inclusion
+    }
+    if (filters.excludeGenres.length > 0) {
+      params.without_genres = filters.excludeGenres.join(','); // AND for exclusion
     }
 
     // PROVIDER LOGIC
-    if (filters.withProviders.length > 0) {
-        if (filters.providerMode === 'include') {
-             params.with_watch_providers = filters.withProviders.join('|');
-        } else {
-             params.without_watch_providers = filters.withProviders.join('|');
-        }
+    if (filters.includeProviders.length > 0) {
+      params.with_watch_providers = filters.includeProviders.join('|');
+    }
+    if (filters.excludeProviders.length > 0) {
+      params.without_watch_providers = filters.excludeProviders.join('|');
     }
 
     // Runtime logic (Movies only)
@@ -134,12 +129,11 @@ class TmdbService {
     }
 
     // Country logic
-    if (filters.withCountries.length > 0) {
-        if (filters.countryMode === 'include') {
-            params.with_origin_country = filters.withCountries.join('|');
-        } else {
-            params.without_origin_country = filters.withCountries.join(','); 
-        }
+    if (filters.includeCountries.length > 0) {
+       params.with_origin_country = filters.includeCountries.join('|');
+    }
+    if (filters.excludeCountries.length > 0) {
+       params.without_origin_country = filters.excludeCountries.join(',');
     }
 
     if (type === 'movie') {

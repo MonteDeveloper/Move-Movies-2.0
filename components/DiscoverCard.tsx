@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useRef } from 'react';
 import styled, { keyframes } from 'styled-components';
 import { Movie, WatchProviders, ProviderInfo, getGenreName } from '../types';
@@ -85,6 +83,7 @@ const ProviderRow = styled.div`
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  margin-top: 4px;
 `;
 
 const ProviderText = styled.span`
@@ -104,6 +103,7 @@ const Info = styled.div`
   font-size: 14px;
   color: #ddd;
   flex-wrap: wrap;
+  align-items: center;
 `;
 
 const Description = styled.p`
@@ -115,7 +115,7 @@ const Description = styled.p`
   overflow: hidden;
   max-width: 85%;
   color: #ccc;
-  margin-bottom: 8px; /* Reduced spacing */
+  margin-top: 8px; /* Reduced spacing */
 `;
 
 const Actions = styled.div`
@@ -405,7 +405,10 @@ const DiscoverCard: React.FC<Props> = ({ movie }) => {
             )}
             
             <Info style={{ marginTop: 10 }}>
-              <span>★ {movie.vote_average.toFixed(1)}</span>
+              <span style={{display:'flex', alignItems:'center', gap: 4}}>
+                  <i className="fa-solid fa-star" style={{color: 'gold', fontSize: 12}}></i> 
+                  {movie.vote_average.toFixed(1)}
+              </span>
               <span>{formattedDate}</span>
               {firstGenre && <span>• {firstGenre}</span>}
             </Info>

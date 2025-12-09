@@ -1,7 +1,5 @@
-
-
 import React, { createContext, useContext, useState } from 'react';
-import { FilterState, GENRES, COUNTRIES } from '../types';
+import { FilterState } from '../types';
 
 interface FiltersContextType {
   filters: FilterState;
@@ -13,13 +11,13 @@ const defaultFilters: FilterState = {
   type: 'both',
   yearRange: [1980, new Date().getFullYear()],
   voteAverageMin: 0,
-  withGenres: [], 
-  genreMode: 'include',
-  withProviders: [], 
-  providerMode: 'include',
+  includeGenres: [],
+  excludeGenres: [],
+  includeProviders: [],
+  excludeProviders: [],
   runtimeRange: [0, 240],
-  withCountries: [],
-  countryMode: 'include'
+  includeCountries: [],
+  excludeCountries: []
 };
 
 const FiltersContext = createContext<FiltersContextType | undefined>(undefined);

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import styled, { css } from 'styled-components';
 import { Movie } from '../types';
@@ -67,9 +66,13 @@ const Title = styled.h3`
   color: ${({ theme }) => theme.text};
 `;
 
-const Rating = styled.span`
+const Rating = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-size: 12px;
   color: ${({ theme }) => theme.textSecondary};
+  margin-top: 2px;
 `;
 
 interface Props {
@@ -162,7 +165,10 @@ const MovieCard: React.FC<Props> = ({ movie, fluid, selected, onSelect }) => {
         )}
       </PosterContainer>
       <Title>{movie.title || movie.name}</Title>
-      <Rating>★ {movie.vote_average.toFixed(1)}</Rating>
+      <Rating>
+         <i className="fa-solid fa-star" style={{color: 'gold', fontSize: 10}}></i> 
+         {movie.vote_average.toFixed(1)}
+      </Rating>
     </Card>
   );
 };

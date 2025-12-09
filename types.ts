@@ -1,5 +1,3 @@
-import 'styled-components';
-
 export interface Movie {
   id: number;
   title?: string;
@@ -152,13 +150,20 @@ export interface FilterState {
   type: 'movie' | 'tv' | 'both';
   yearRange: [number, number];
   voteAverageMin: number;
-  withGenres: number[]; // Array of IDs
-  genreMode: 'include' | 'exclude';
-  withProviders: number[]; // Array of Provider IDs
-  providerMode: 'include' | 'exclude';
-  runtimeRange: [number, number]; // New: Minutes
-  withCountries: string[]; // New: ISO codes
-  countryMode: 'include' | 'exclude'; // New
+  
+  // Genres
+  includeGenres: number[];
+  excludeGenres: number[];
+  
+  // Providers
+  includeProviders: number[];
+  excludeProviders: number[];
+  
+  runtimeRange: [number, number]; // Minutes
+  
+  // Countries
+  includeCountries: string[];
+  excludeCountries: string[];
 }
 
 export interface ThemeType {
@@ -171,11 +176,6 @@ export interface ThemeType {
   border: string;
   borderRadius: string;
   spacing: (factor: number) => string;
-}
-
-// Augment styled-components DefaultTheme
-declare module 'styled-components' {
-  export interface DefaultTheme extends ThemeType {}
 }
 
 export const GENRES = [
