@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import styled from 'styled-components';
 import { useFilters } from '../contexts/FiltersContext';
@@ -291,7 +292,7 @@ const FiltersPage: React.FC = () => {
 
   const minYear = 1960;
   const maxYear = new Date().getFullYear();
-  const minRuntime = 60;
+  const minRuntime = 0;
   const maxRuntime = 240;
   
   const starContainerRef = useRef<HTMLDivElement>(null);

@@ -1,3 +1,4 @@
+import 'styled-components';
 
 export interface Movie {
   id: number;
@@ -225,3 +226,26 @@ export const COUNTRIES = [
   { iso: 'CN', name: 'China' },
   { iso: 'IN', name: 'India' },
 ];
+
+declare module 'styled-components' {
+  export interface DefaultTheme extends ThemeType {}
+}
+
+declare module 'react-window' {
+  import { Component, CSSProperties } from 'react';
+  export class FixedSizeList extends Component<any> {}
+  export class FixedSizeGrid extends Component<any> {}
+  export interface ListChildComponentProps<T = any> {
+    index: number;
+    style: CSSProperties;
+    data: T;
+    isScrolling?: boolean;
+  }
+  export interface GridChildComponentProps<T = any> {
+    columnIndex: number;
+    rowIndex: number;
+    style: CSSProperties;
+    data: T;
+    isScrolling?: boolean;
+  }
+}

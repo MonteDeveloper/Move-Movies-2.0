@@ -19,13 +19,28 @@ const FilterButton = styled(Link)`
   top: 20px;
   right: 20px;
   z-index: 50;
-  background: rgba(0,0,0,0.5);
+  background: rgba(255, 255, 255, 0.2);
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 20px;
   color: white;
-  padding: 8px 15px;
-  border-radius: 20px;
-  font-size: 14px;
-  backdrop-filter: blur(4px);
-  border: 1px solid rgba(255,255,255,0.2);
+  backdrop-filter: blur(5px);
+  border: 1px solid rgba(255,255,255,0.1);
+  text-decoration: none;
+  transition: transform 0.2s, background 0.3s;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+  
+  &:hover {
+    background: rgba(255, 255, 255, 0.3);
+  }
+  
+  &:active {
+    transform: scale(0.9);
+  }
 `;
 
 const LoadingContainer = styled.div`
@@ -183,7 +198,9 @@ const DiscoverPage: React.FC = () => {
 
   return (
     <>
-      <FilterButton to="/filters">{t('filters')}</FilterButton>
+      <FilterButton to="/filters">
+          <i className="fa-solid fa-sliders"></i>
+      </FilterButton>
       <Container ref={containerRef}>
         {queue.map((movie, index) => (
           <div 
