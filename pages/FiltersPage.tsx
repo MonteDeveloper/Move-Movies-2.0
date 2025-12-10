@@ -93,7 +93,7 @@ const ChipContainer = styled.div`
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  max-height: 300px;
+  max-height: 60vh;
   overflow-y: auto;
 `;
 
@@ -291,7 +291,7 @@ const FiltersPage: React.FC = () => {
 
   const minYear = 1960;
   const maxYear = new Date().getFullYear();
-  const minRuntime = 0;
+  const minRuntime = 60;
   const maxRuntime = 240;
   
   const starContainerRef = useRef<HTMLDivElement>(null);

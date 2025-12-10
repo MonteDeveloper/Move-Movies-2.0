@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect, useRef } from 'react';
-import styled, { keyframes } from 'styled-components';
-import { Movie, WatchProviders, ProviderInfo, getGenreName } from '../types';
+import styled, { keyframes, css } from 'styled-components';
+import { Movie, ProviderInfo, getGenreName } from '../types';
 import { useFavorites } from '../contexts/FavoritesContext';
 import { SkeletonPulse } from './Skeleton';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -9,6 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { tmdbService } from '../services/tmdbService';
 import { useModal } from '../contexts/ModalContext';
 import { useDiscoverCache } from '../contexts/DiscoverCacheContext';
+import Snackbar from './Snackbar';
 
 const Container = styled.div`
   height: 100vh;
@@ -55,12 +57,12 @@ const Overlay = styled.div`
   left: 0;
   width: 100%;
   background: linear-gradient(to top, rgba(0,0,0,0.95), transparent);
-  padding: 80px 20px 100px 20px; /* Increased bottom padding for navbar spacing */
+  padding: 60px 20px 90px 20px; 
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
   z-index: 2;
-  pointer-events: none; /* Let clicks pass through */
+  pointer-events: none; 
 `;
 
 const TitleRow = styled.div`
@@ -68,22 +70,33 @@ const TitleRow = styled.div`
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-  padding-right: 60px; /* Space for fav button */
+  padding-right: 60px; 
 `;
 
 const Title = styled.h2`
-  font-size: 24px;
+  font-size: 20px;
+  line-height: 1.2;
   font-weight: bold;
   text-shadow: 0 2px 4px rgba(0,0,0,0.5);
   margin: 0;
   width: 100%;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+`;
+
+const fadeIn = keyframes`
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
 `;
 
 const ProviderRow = styled.div`
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 4px;
+  gap: 4px;
+  margin-bottom: 4px; /* Spacing between providers and title */
+  animation: ${fadeIn} 0.5s ease-out forwards;
 `;
 
 const ProviderText = styled.span`
@@ -99,34 +112,40 @@ const ProviderText = styled.span`
 
 const Info = styled.div`
   display: flex;
-  gap: 15px;
-  font-size: 14px;
+  gap: 12px;
+  font-size: 13px;
   color: #ddd;
   flex-wrap: wrap;
   align-items: center;
 `;
 
 const Description = styled.p`
-  font-size: 14px;
-  line-height: 1.4;
+  font-size: 13px;
+  line-height: 1.3;
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
   max-width: 85%;
   color: #ccc;
-  margin-top: 8px; /* Reduced spacing */
+  margin-top: 4px; 
 `;
 
 const Actions = styled.div`
   position: absolute;
   right: 20px;
-  bottom: 120px; /* Adjusted for new Overlay padding */
+  bottom: 110px; 
   display: flex;
   flex-direction: column;
   gap: 20px;
   z-index: 10;
   pointer-events: auto;
+`;
+
+const popAnimation = keyframes`
+  0% { transform: scale(1); }
+  50% { transform: scale(1.3); }
+  100% { transform: scale(1); }
 `;
 
 const ActionButton = styled.button<{ $active?: boolean }>`
@@ -140,17 +159,23 @@ const ActionButton = styled.button<{ $active?: boolean }>`
   font-size: 20px;
   color: ${props => props.$active ? '#E50914' : 'white'};
   backdrop-filter: blur(5px);
-  transition: transform 0.2s;
+  border: 1px solid rgba(255,255,255,0.1);
+  transition: color 0.3s ease, transform 0.2s ease, background 0.3s;
+  animation: ${props => props.$active ? css`${popAnimation} 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)` : 'none'};
 
   &:hover {
-    transform: scale(1.1);
+    background: rgba(255, 255, 255, 0.3);
+  }
+  
+  &:active {
+    transform: scale(0.9);
   }
 `;
 
-const MediaTypeTag = styled.div`
+const TopTag = styled.div`
   position: absolute;
   top: 20px;
-  left: 20px;
+  left: 20px; /* Moved to top left as requested */
   background: rgba(0, 0, 0, 0.6);
   padding: 4px 8px;
   border-radius: 4px;
@@ -220,12 +245,17 @@ const DiscoverCard: React.FC<Props> = ({ movie }) => {
   const [showTooltip, setShowTooltip] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Snackbar Logic
+  const [snackbarMsg, setSnackbarMsg] = useState('');
+  const [showSnackbar, setShowSnackbar] = useState(false);
+
   useEffect(() => {
     // Reset state on movie change or component remount with different movie
     setImageLoaded(false);
     setHasError(false);
     setShowTooltip(false);
     setProviders([]);
+    setShowSnackbar(false);
 
     let url = null;
     if (movie.poster_path) {
@@ -307,20 +337,36 @@ const DiscoverCard: React.FC<Props> = ({ movie }) => {
         clearTimeout(timer);
         clearInterval(cycleTimer);
     };
-  }, [hasOpenedDetail, imageLoaded]); // Added imageLoaded dependency
+  }, [hasOpenedDetail, imageLoaded]); 
+
+  const showFeedback = (msg: string) => {
+    setSnackbarMsg(msg);
+    setShowSnackbar(true);
+    setTimeout(() => setShowSnackbar(false), 2000);
+  };
 
   const toggleLike = (e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    if (liked) removeFavorite(movie.id);
-    else addFavorite(movie);
+    if (liked) {
+        removeFavorite(movie.id);
+        showFeedback(t('removedFromFav'));
+    } else {
+        addFavorite(movie);
+        showFeedback(t('addedToFav'));
+    }
   };
 
   const toggleWatched = (e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    if (watched) removeWatched(movie.id);
-    else addWatched(movie);
+    if (watched) {
+        removeWatched(movie.id);
+        showFeedback(t('removedFromWatched'));
+    } else {
+        addWatched(movie);
+        showFeedback(t('addedToWatched'));
+    }
   };
 
   const handleImageError = () => {
@@ -348,10 +394,13 @@ const DiscoverCard: React.FC<Props> = ({ movie }) => {
   const firstGenre = (firstGenreName && firstGenreName !== 'Unknown') 
     ? t(`genre_${firstGenreId}`, firstGenreName) 
     : null;
+    
+  // Top Tag only shows Media Type now, strictly
+  const topTagLabel = mediaType;
 
   return (
     <Container ref={containerRef} onClick={handleCardClick}>
-      <MediaTypeTag>{mediaType}</MediaTypeTag>
+      <TopTag>{topTagLabel}</TopTag>
       
       {!imageLoaded && !hasError && (
         <div style={{position: 'absolute', inset: 0, zIndex: 1}}>
@@ -390,10 +439,6 @@ const DiscoverCard: React.FC<Props> = ({ movie }) => {
           </>
         ) : (
           <>
-            <TitleRow>
-              <Title>{movie.title || movie.name}</Title>
-            </TitleRow>
-
             {providers.length > 0 && (
                 <ProviderRow>
                     {providers.slice(0, 3).map((p, i) => (
@@ -403,13 +448,17 @@ const DiscoverCard: React.FC<Props> = ({ movie }) => {
                     ))}
                 </ProviderRow>
             )}
+
+            <TitleRow>
+              <Title>{movie.title || movie.name}</Title>
+            </TitleRow>
             
-            <Info style={{ marginTop: 10 }}>
+            <Info>
               <span style={{display:'flex', alignItems:'center', gap: 4}}>
                   <i className="fa-solid fa-star" style={{color: 'gold', fontSize: 12}}></i> 
                   {movie.vote_average.toFixed(1)}
               </span>
-              <span>{formattedDate}</span>
+              <span>{formattedDate.split('/').pop()}</span>
               {firstGenre && <span>• {firstGenre}</span>}
             </Info>
             <Description>{movie.overview}</Description>
@@ -425,6 +474,8 @@ const DiscoverCard: React.FC<Props> = ({ movie }) => {
           <i className={watched ? "fa-solid fa-eye" : "fa-regular fa-eye"}></i>
         </ActionButton>
       </Actions>
+
+      <Snackbar message={snackbarMsg} isVisible={showSnackbar} />
     </Container>
   );
 };

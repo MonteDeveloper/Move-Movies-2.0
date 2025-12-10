@@ -7,6 +7,8 @@ import { useApiKey } from './ApiKeyContext';
 import { useLanguage } from './LanguageContext';
 import { useFavorites } from './FavoritesContext';
 
+export const SKIPPED_EXPIRATION_DAYS = 30;
+
 interface DiscoverCacheContextType {
   queue: Movie[];
   seenHistory: Movie[];
@@ -27,17 +29,40 @@ export const DiscoverCacheProvider: React.FC<{ children: React.ReactNode }> = ({
   const { favorites, watched } = useFavorites();
   const [queue, setQueue] = useState<Movie[]>([]);
   
+  // Initialize and clean up history based on timestamp
+  const initializeHistory = (): { ids: Set<number>, history: Movie[] } => {
+    const storedHistory = localStorage.getItem('move_movies_seen_history');
+    if (!storedHistory) return { ids: new Set(), history: [] };
+
+    let parsedHistory: Movie[] = JSON.parse(storedHistory);
+    const now = Date.now();
+    const expirationMs = SKIPPED_EXPIRATION_DAYS * 24 * 60 * 60 * 1000;
+
+    // Retroactive fix: Assign timestamp to existing items if missing
+    // Filter out expired items
+    parsedHistory = parsedHistory.map(m => ({
+      ...m,
+      skippedAt: m.skippedAt || now // Retroactive timestamp assignment
+    })).filter(m => {
+       const age = now - (m.skippedAt || 0);
+       return age < expirationMs;
+    });
+
+    // Rebuild the ID set from the cleaned history
+    const validIds = new Set(parsedHistory.map(m => m.id));
+    
+    // Also check stored IDs just in case, but sync with history is safer
+    // We prioritize the history list as the source of truth for "Skipped"
+    return { ids: validIds, history: parsedHistory };
+  };
+
+  const [initialData] = useState(() => initializeHistory());
+
   // "seenIds" tracks items shown in the discover feed (Skipped + implicitly seen)
-  const [seenIds, setSeenIds] = useState<Set<number>>(() => {
-    const stored = localStorage.getItem('move_movies_seen_ids');
-    return stored ? new Set(JSON.parse(stored)) : new Set();
-  });
+  const [seenIds, setSeenIds] = useState<Set<number>>(initialData.ids);
 
   // "seenHistory" is effectively the "Skipped" list now
-  const [seenHistory, setSeenHistory] = useState<Movie[]>(() => {
-    const stored = localStorage.getItem('move_movies_seen_history');
-    return stored ? JSON.parse(stored) : [];
-  });
+  const [seenHistory, setSeenHistory] = useState<Movie[]>(initialData.history);
 
   // Track if user has opened details at least once in this session (in-memory only)
   const [hasOpenedDetail, setHasOpenedDetail] = useState(false);
@@ -71,7 +96,7 @@ export const DiscoverCacheProvider: React.FC<{ children: React.ReactNode }> = ({
                 seenHistory.map(async (movie) => {
                     try {
                          const details = await tmdbService.getDetails(movie.id, movie.media_type || 'movie');
-                         return { ...details, media_type: movie.media_type };
+                         return { ...details, media_type: movie.media_type, skippedAt: movie.skippedAt };
                     } catch {
                         return movie;
                     }
@@ -140,7 +165,8 @@ export const DiscoverCacheProvider: React.FC<{ children: React.ReactNode }> = ({
   const markAsSeen = (movie: Movie) => {
     if (!seenIds.has(movie.id)) {
       setSeenIds(prev => new Set(prev).add(movie.id));
-      setSeenHistory(prev => [...prev, movie]);
+      // Add skippedAt timestamp
+      setSeenHistory(prev => [...prev, { ...movie, skippedAt: Date.now() }]);
     }
   };
 

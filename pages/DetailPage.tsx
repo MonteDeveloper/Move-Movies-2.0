@@ -1,8 +1,8 @@
 
-import React, { useEffect, useState, useLayoutEffect, useRef, memo } from 'react';
+import React, { useEffect, useState, useLayoutEffect, useRef, memo, useCallback } from 'react';
 import styled from 'styled-components';
 import { tmdbService } from '../services/tmdbService';
-import { MediaDetail, CastMember, Review, WatchProviders, CrewMember } from '../types';
+import { MediaDetail, CastMember, Review, WatchProviders, CrewMember, Video } from '../types';
 import { useFavorites } from '../contexts/FavoritesContext';
 import { useTranslation } from 'react-i18next';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -12,6 +12,7 @@ import MovieCard from '../components/MovieCard';
 import { getLanguageName, getCountryName } from '../utils/formatLocal';
 import { FixedSizeList as List, ListChildComponentProps } from 'react-window';
 import AutoSizer from 'react-virtualized-auto-sizer';
+import YouTubePlayer from '@/components/YouTubePlayer';
 
 interface DetailPageProps {
   id: number;
@@ -19,19 +20,53 @@ interface DetailPageProps {
   zIndex: number;
   onClose: () => void;
   onCloseAll: () => void;
+  stackIndex: number;
 }
 
 // 1) Scroll Locking: Conditional overflow based on props to lock background when sub-modals open
+// Changed width to 100% to avoid scrollbar width issues causing layout shifts/overflows
 const Container = styled.div<{ $zIndex: number; $isLocked: boolean }>`
   position: fixed;
   top: 0;
   left: 0;
-  width: 100vw;
+  width: 100%; 
   height: 100vh;
   background-color: ${({ theme }) => theme.background};
   z-index: ${props => props.$zIndex};
   overflow-y: ${props => props.$isLocked ? 'hidden' : 'auto'};
   overscroll-behavior: contain;
+`;
+
+const NavButton = styled.button`
+  position: fixed;
+  top: 20px;
+  background: rgba(0,0,0,0.5);
+  color: white;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(255,255,255,0.1);
+  z-index: 200;
+  transition: transform 0.1s;
+
+  &:active {
+    transform: scale(0.95);
+  }
+`;
+
+const BackButton = styled(NavButton)`
+  left: 20px;
+`;
+
+const CloseButton = styled(NavButton)`
+  right: 20px;
+  background: rgba(0, 0, 0, 0.5);
 `;
 
 const HeroContainer = styled.div`
@@ -85,49 +120,25 @@ const HeaderContent = styled.div`
   z-index: 20; 
 `;
 
-const StickyVideoContainer = styled.div`
-  position: sticky;
+const StickyVideoContainer = styled.div<{ $isSticky: boolean }>`
+  position: ${props => props.$isSticky ? 'sticky' : 'relative'};
   top: 0;
   width: 100%;
-  aspect-ratio: 16/9;
-  z-index: 100;
+  height: 0;
+  padding-bottom: 56.25%; /* 16:9 aspect ratio padding hack */
+  z-index: 90;
   background: black;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  box-shadow: ${props => props.$isSticky ? '0 4px 20px rgba(0,0,0,0.5)' : 'none'};
   margin-bottom: 20px;
-  
-  @media (min-width: 768px) {
+  overflow: hidden; /* Ensures content doesn't overflow */
+
+  /* Force children to fill the padding-box */
+  & > * {
+    position: absolute;
     top: 0;
-  }
-`;
-
-const StyledIframe = styled.iframe`
-  width: 100%;
-  height: 100%;
-  border: none;
-`;
-
-const VideoFallback = styled.div`
-  width: 100%;
-  height: 100%;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  background: #111;
-`;
-
-const VideoLinkBtn = styled.a`
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 24px;
-  background: #c4302b;
-  color: white;
-  border-radius: 8px;
-  font-weight: bold;
-  text-decoration: none;
-  
-  &:hover {
-    background: #e62117;
+    left: 0;
+    width: 100%;
+    height: 100%;
   }
 `;
 
@@ -163,13 +174,15 @@ const Tag = styled.span`
 `;
 
 const MediaTag = styled.span`
-  background: ${({ theme }) => theme.primary};
-  padding: 2px 6px;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 4px 8px;
   border-radius: 4px;
   color: white;
   font-weight: bold;
   font-size: 12px;
   text-transform: uppercase;
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(255,255,255,0.2);
 `;
 
 const Overview = styled.p`
@@ -289,39 +302,6 @@ const ActionButton = styled.button<{ $primary?: boolean; $active?: boolean }>`
   }
 `;
 
-const NavButton = styled.button`
-  position: absolute;
-  top: 20px;
-  background: rgba(0,0,0,0.5);
-  color: white;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  font-size: 18px;
-  z-index: 30;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  backdrop-filter: blur(4px);
-  border: 1px solid rgba(255,255,255,0.1);
-  transition: transform 0.1s;
-
-  &:active {
-    transform: scale(0.95);
-  }
-`;
-
-const BackButton = styled(NavButton)`
-  left: 20px;
-`;
-
-const CloseAllButton = styled(NavButton)`
-  right: 20px;
-  background: rgba(229, 9, 20, 0.7);
-  border-color: rgba(229, 9, 20, 0.3);
-`;
-
 const BackToTopButton = styled.button`
   position: fixed;
   bottom: 20px;
@@ -377,7 +357,6 @@ const SeasonListContainer = styled.div`
   margin-bottom: 30px;
 `;
 
-// 3) Season Button Alignment Fix: Explicit flex-col and start alignment for text div
 const SeasonButton = styled.button`
   background: ${({ theme }) => theme.backgroundLight};
   padding: 15px;
@@ -544,7 +523,6 @@ const FullScreenModal = styled.div`
   padding: 20px;
 `;
 
-// 1) Season Modal: Locked scroll on background, flex column layout
 const SeasonModalContainer = styled.div`
   position: fixed;
   top: 0;
@@ -696,7 +674,7 @@ const EpisodeRow = memo(({ data, index, style, onClick }: ListChildComponentProp
     );
 });
 
-const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCloseAll }) => {
+const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCloseAll, stackIndex }) => {
   const { t } = useTranslation();
   const { currentLanguage } = useLanguage();
   const { isFavorite, addFavorite, removeFavorite, isWatched, addWatched, removeWatched } = useFavorites();
@@ -713,9 +691,26 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
 
   useEffect(() => {
     const container = containerRef.current;
+    
+    const handleScroll = () => {
+        if (!container) return;
+        
+        sessionStorage.setItem(scrollKey, container.scrollTop.toString());
+        
+        // Show scroll top button
+        if (container.scrollTop > 400) {
+            setShowScrollTop(true);
+        } else {
+            setShowScrollTop(false);
+        }
+    };
+
+    if (container) {
+       container.addEventListener('scroll', handleScroll);
+    }
     return () => {
       if (container) {
-         sessionStorage.setItem(scrollKey, container.scrollTop.toString());
+         container.removeEventListener('scroll', handleScroll);
       }
     };
   }, [scrollKey]);
@@ -727,9 +722,13 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
   const [loadingCast, setLoadingCast] = useState(true);
   const [providers, setProviders] = useState<WatchProviders | null>(null);
   const [loadingProviders, setLoadingProviders] = useState(true);
-  const [trailerKey, setTrailerKey] = useState<string | null>(null);
-  const [videoError, setVideoError] = useState(false);
+  
+  // Video Queue State
+  const [videoQueue, setVideoQueue] = useState<Video[]>([]);
+  const [videoFallbackUrl, setVideoFallbackUrl] = useState<string | null>(null);
   const [loadingVideo, setLoadingVideo] = useState(true);
+  const [isPlayerReady, setIsPlayerReady] = useState(false);
+  
   const [recommendations, setRecommendations] = useState<any[]>([]);
   const [loadingRecommendations, setLoadingRecommendations] = useState(true);
   
@@ -759,6 +758,15 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
   // Back to top state
   const [showScrollTop, setShowScrollTop] = useState(false);
 
+  // Stable callback for video fallback to prevent re-renders
+  const handleVideoFallback = useCallback((url: string) => {
+      setVideoFallbackUrl(url);
+  }, []);
+
+  const handlePlayerReady = useCallback(() => {
+    setIsPlayerReady(true);
+  }, []);
+
   useEffect(() => {
     let mounted = true;
     const mediaType = type;
@@ -767,7 +775,10 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
     setDetail(null); setLoadingDetail(true);
     setCast([]); setCrew([]); setLoadingCast(true);
     setProviders(null); setLoadingProviders(true);
-    setTrailerKey(null); setLoadingVideo(true); setVideoError(false);
+    
+    // Reset video state
+    setVideoQueue([]); setVideoFallbackUrl(null); setLoadingVideo(true); setIsPlayerReady(false);
+
     setRecommendations([]); setLoadingRecommendations(true);
     setGallery([]); setLoadingGallery(true);
     setSeasonEpisodes({}); setOpenSeasonNumber(null);
@@ -804,21 +815,63 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
                  }
              }
 
-             let videoData = await tmdbService.getVideos(numId, mediaType); 
-             let trailer = videoData.results?.find(v => v.site === 'YouTube' && v.type === 'Trailer');
-             
-             if (!trailer) {
-                 videoData = await tmdbService.getVideos(numId, mediaType, 'en-US');
-                 trailer = videoData.results?.find(v => v.site === 'YouTube' && v.type === 'Trailer');
-             }
-             
-             if (!trailer) {
-                 videoData = await tmdbService.getVideos(numId, mediaType, undefined);
-                 trailer = videoData.results?.find(v => v.site === 'YouTube' && v.type === 'Trailer');
+             // --- ADVANCED TRAILER SELECTION ---
+             // Sort Helper
+             const sortVideos = (vids: Video[]) => {
+                 return vids
+                     .filter(v => v.site === 'YouTube' && v.type === 'Trailer')
+                     .sort((a, b) => {
+                         // Official first
+                         if (a.official !== b.official) return a.official ? -1 : 1;
+                         // Recent first
+                         const dateA = a.published_at ? new Date(a.published_at).getTime() : 0;
+                         const dateB = b.published_at ? new Date(b.published_at).getTime() : 0;
+                         return dateB - dateA;
+                     });
+             };
+
+             const appLang = currentLanguage === 'it' ? 'it-IT' : 'en-US';
+             const fallbackLang = 'en-US';
+             const origLang = detailsData.original_language;
+
+             let res1, res2, res3, res4;
+
+             // TV: fetch ONLY season 1 to avoid spoilers.
+             // Prioritize: App Lang -> English -> Original Language
+             if (mediaType === 'tv') {
+                  const p1 = tmdbService.getSeasonVideos(numId, 1, appLang);
+                  const p2 = tmdbService.getSeasonVideos(numId, 1, fallbackLang);
+                  const p3 = (origLang && origLang !== 'en' && origLang !== 'it') 
+                     ? tmdbService.getSeasonVideos(numId, 1, origLang) 
+                     : Promise.resolve({ results: [] });
+                  
+                  [res1, res2, res3] = await Promise.all([p1, p2, p3]);
+                  res4 = { results: [] }; 
+             } else {
+                  // Movies
+                  const p1 = tmdbService.getVideos(numId, mediaType, appLang);
+                  const p2 = tmdbService.getVideos(numId, mediaType, fallbackLang);
+                  const p3 = (origLang && origLang !== 'en' && origLang !== 'it') 
+                     ? tmdbService.getVideos(numId, mediaType, origLang) 
+                     : Promise.resolve({ results: [] });
+                  const p4 = tmdbService.getVideos(numId, mediaType, undefined as any);
+                  [res1, res2, res3, res4] = await Promise.all([p1, p2, p3, p4]);
              }
 
+             const list1 = sortVideos((res1.results || []) as Video[]);
+             const list2 = sortVideos((res2.results || []) as Video[]);
+             const list3 = sortVideos((res3.results || []) as Video[]);
+             const list4 = sortVideos((res4.results || []) as Video[]);
+
+             // Priority: AppLang -> English -> Original -> Others
+             // Concatenate sorted lists to maintain priority buckets.
+             const allCandidates = [...list1, ...list2, ...list3, ...list4];
+             
+             // Deduplicate
+             const uniqueCandidates = Array.from(new Map(allCandidates.map(v => [v.key, v])).values());
+
              if (mounted) {
-                 setTrailerKey(trailer ? trailer.key : null);
+                 setVideoQueue(uniqueCandidates);
                  setLoadingVideo(false);
              }
 
@@ -858,22 +911,6 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
 
     return () => { mounted = false; };
   }, [id, type, currentLanguage]);
-
-  useEffect(() => {
-      const container = containerRef.current;
-      if (!container) return;
-
-      const handleScroll = () => {
-          if (container.scrollTop > 400) {
-              setShowScrollTop(true);
-          } else {
-              setShowScrollTop(false);
-          }
-      };
-
-      container.addEventListener('scroll', handleScroll);
-      return () => container.removeEventListener('scroll', handleScroll);
-  }, []);
 
   // Update loading state when modal changes to avoid stale loading skeleton
   useEffect(() => {
@@ -1024,7 +1061,6 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
 
   const isFav = detail ? isFavorite(detail.id) : false;
   const isSeen = detail ? isWatched(detail.id) : false;
-  const origin = typeof window !== 'undefined' ? window.location.origin : '';
 
   const handleHeroError = async () => {
        if (detail) {
@@ -1102,7 +1138,6 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
       if (loadingDetail || !detail || detail.media_type !== 'tv' || !detail.seasons || detail.seasons.length === 0) return null;
       const seasons = detail.seasons.filter(s => s.season_number >= 0);
 
-      // 5) Single season condition REMOVED. Always render button list.
       return (
           <>
             <SectionTitle style={{marginBottom: 15}}>{t('seasonsCount', { count: seasons.length })}</SectionTitle>
@@ -1194,7 +1229,6 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
       const season = detail.seasons[seasonIndex];
       const episodes = seasonEpisodes[openSeasonNumber];
 
-      // 2) Virtualization Fix: Ensure flex layout passes full height to AutoSizer
       return (
           <SeasonModalContainer>
              <div style={{display: 'flex', alignItems: 'center', padding: '15px 20px', borderBottom: '1px solid #333', background: '#111', flexShrink: 0}}>
@@ -1242,7 +1276,6 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
                        <div style={{position: 'relative', width: '100%', aspectRatio: '16/9', flexShrink: 0}}>
                            {loadingEpisodeImage && <div style={{position: 'absolute', inset: 0, zIndex: 1}}><SkeletonPulse height="100%" radius="0" /></div>}
                            
-                           {/* 4) Image Fallback Fix: Correctly switch state on error */}
                            {(!episodeImageError && ep.still_path) ? (
                                <img 
                                    src={`https://image.tmdb.org/t/p/original${ep.still_path}`} 
@@ -1307,21 +1340,21 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
 
   const isModalOpen = galleryIndex !== null || episodeModal !== null || openSeasonNumber !== null;
 
+  // Determine if we show player or fallback
+  const showPlayer = !loadingVideo && videoQueue.length > 0 && videoFallbackUrl === null;
+  const showFallback = !loadingVideo && videoFallbackUrl !== null && videoFallbackUrl !== '';
+
   return (
     <Container ref={containerRef} $zIndex={zIndex} $isLocked={isModalOpen}>
-      <BackButton onClick={onClose}>
-        <i className="fa-solid fa-arrow-left"></i>
-      </BackButton>
-
-      <CloseAllButton onClick={onCloseAll}>
-        <i className="fa-solid fa-times"></i>
-      </CloseAllButton>
-      
-      {showScrollTop && !isModalOpen && (
-          <BackToTopButton onClick={scrollToTop}>
-              <i className="fa-solid fa-arrow-up"></i>
-          </BackToTopButton>
+      {/* Navigation Buttons */}
+      {stackIndex > 0 && (
+        <BackButton onClick={onClose}>
+            <i className="fa-solid fa-arrow-left"></i>
+        </BackButton>
       )}
+      <CloseButton onClick={stackIndex > 0 ? onCloseAll : onClose}>
+         <i className="fa-solid fa-times"></i>
+      </CloseButton>
       
       {loadingDetail ? <SkeletonPulse height="50vh" radius="0" /> : (
         <HeroContainer>
@@ -1365,6 +1398,15 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
                 <i className={isSeen ? "fa-solid fa-eye" : "fa-regular fa-eye"}></i>
                 {isSeen ? t('removeFromWatched') : t('markAsWatched')}
               </ActionButton>
+              {showFallback && videoFallbackUrl && (
+                  <ActionButton 
+                      $primary 
+                      onClick={() => window.open(videoFallbackUrl!, '_blank', 'noopener,noreferrer')}
+                  >
+                     <i className="fa-brands fa-youtube"></i>
+                     {t('goToTrailer')}
+                  </ActionButton>
+              )}
               <ActionButton onClick={handleShare}>
                  <i className="fa-solid fa-share-nodes"></i>
                  {t('share')}
@@ -1373,26 +1415,15 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
         </HeaderContent>
       )}
 
-      {loadingVideo ? null : (trailerKey && !videoError) ? (
-        <StickyVideoContainer>
-           <StyledIframe 
-             src={`https://www.youtube.com/embed/${trailerKey}?autoplay=0&controls=1&modestbranding=1&rel=0&origin=${origin}`}
-             title="Trailer" 
-             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-             allowFullScreen 
-             onError={() => setVideoError(true)}
-           />
+      {showPlayer && (
+        <StickyVideoContainer $isSticky={isPlayerReady}>
+               <YouTubePlayer 
+                  videos={videoQueue} 
+                  onFallback={handleVideoFallback}
+                  onPlayerReady={handlePlayerReady}
+               />
         </StickyVideoContainer>
-      ) : trailerKey ? (
-          <StickyVideoContainer>
-             <VideoFallback>
-                <VideoLinkBtn href={`https://www.youtube.com/watch?v=${trailerKey}`} target="_blank" rel="noopener noreferrer">
-                    <i className="fa-brands fa-youtube"></i>
-                    {t('playTrailer')}
-                </VideoLinkBtn>
-             </VideoFallback>
-          </StickyVideoContainer>
-      ) : null}
+      )}
 
       <BodyContent>
         <SectionHeader>
@@ -1455,7 +1486,7 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
                  <InfoItem>
                    <InfoLabel>{t('tagline')}</InfoLabel>
                    <InfoValue>"{detail.tagline}"</InfoValue>
-                 </InfoItem>
+                </InfoItem>
               )}
               {directors && <InfoItem><InfoLabel>{t('director')}</InfoLabel><InfoValue>{directors}</InfoValue></InfoItem>}
               {writers && <InfoItem><InfoLabel>{t('screenplay')}</InfoLabel><InfoValue>{writers}</InfoValue></InfoItem>}
@@ -1600,6 +1631,13 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
         </div>
 
       </BodyContent>
+
+      {/* Moved BackToTopButton to the end of the return to avoid index shifting in DOM causing iframe reload */}
+      {showScrollTop && !isModalOpen && (
+          <BackToTopButton onClick={scrollToTop}>
+              <i className="fa-solid fa-arrow-up"></i>
+          </BackToTopButton>
+      )}
 
       {renderGalleryModal()}
       {renderSeasonModal()}

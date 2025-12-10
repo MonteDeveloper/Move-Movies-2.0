@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { useDiscoverCache } from '../contexts/DiscoverCacheContext';
+import { useDiscoverCache, SKIPPED_EXPIRATION_DAYS } from '../contexts/DiscoverCacheContext';
 import MovieCard from '../components/MovieCard';
 import { GENRES } from '../types';
 import ConfirmationModal from '../components/ConfirmationModal';
@@ -131,7 +131,7 @@ const SessionPage: React.FC = () => {
   });
 
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
-  const [exportMsg, setExportMsg] = useState('');
+  const [isInfoOpen, setIsInfoOpen] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -152,30 +152,6 @@ const SessionPage: React.FC = () => {
     setIsConfirmOpen(false);
   };
 
-  const handleExport = () => {
-    if (filtered.length === 0) return;
-
-    let text = "";
-    filtered.forEach(m => {
-      const title = m.title || m.name;
-      const date = m.release_date || m.first_air_date;
-      const year = date ? date.split('-')[0] : '';
-      const type = m.media_type === 'tv' ? 'tv' : 'movie';
-      
-      text += `${title} (${year})\n`;
-      text += `TMDB: https://www.themoviedb.org/${type}/${m.id}\n`;
-      text += `\n`;
-    });
-
-    navigator.clipboard.writeText(text).then(() => {
-      setExportMsg(t('exportSuccess'));
-      setTimeout(() => setExportMsg(''), 2000);
-    }).catch(() => {
-      setExportMsg(t('exportError'));
-      setTimeout(() => setExportMsg(''), 2000);
-    });
-  };
-
   return (
     <PageContainer>
       <FixedHeader>
@@ -189,9 +165,9 @@ const SessionPage: React.FC = () => {
         </TopRow>
 
         <ActionRow>
-            <ActionButton onClick={handleExport}>
-                {exportMsg ? <i className="fa-solid fa-check"></i> : <i className="fa-solid fa-share-nodes"></i>}
-                {exportMsg ? '' : t('export')}
+            <ActionButton onClick={() => setIsInfoOpen(true)}>
+                <i className="fa-solid fa-circle-info"></i>
+                Info
             </ActionButton>
             <ActionButton onClick={() => setIsConfirmOpen(true)} $danger>
                 <i className="fa-solid fa-trash-can"></i>
@@ -259,6 +235,16 @@ const SessionPage: React.FC = () => {
         onCancel={() => setIsConfirmOpen(false)}
         confirmText={t('confirm')}
         isDanger
+      />
+
+      <ConfirmationModal 
+        isOpen={isInfoOpen}
+        title={t('skippedInfoTitle')}
+        message={t('skippedInfoMessage', { days: SKIPPED_EXPIRATION_DAYS })}
+        onConfirm={() => setIsInfoOpen(false)}
+        onCancel={() => setIsInfoOpen(false)}
+        confirmText="OK"
+        hideCancel
       />
     </PageContainer>
   );

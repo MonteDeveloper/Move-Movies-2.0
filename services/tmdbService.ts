@@ -1,3 +1,4 @@
+
 import { rateLimiter } from './rateLimiter';
 import { FilterState, MediaDetail, Movie, Season, WatchProviders, Review, CrewMember, CastMember, GENRES, COUNTRIES, ProviderInfo } from '../types';
 
@@ -173,6 +174,12 @@ class TmdbService {
     if (language) params.language = language;
     // If language is explicitly undefined/null passed here, let fetch handle it
     return this.fetch<{ results: any[] }>(`/${type}/${id}/videos`, params);
+  }
+
+  async getSeasonVideos(tvId: number, seasonNumber: number, language?: string | null) {
+    const params: any = {};
+    if (language !== undefined) params.language = language;
+    return this.fetch<{ results: any[] }>(`/tv/${tvId}/season/${seasonNumber}/videos`, params);
   }
 
   async getRecommendations(id: number, type: 'movie' | 'tv') {

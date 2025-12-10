@@ -72,6 +72,7 @@ interface Props {
   confirmText?: string;
   cancelText?: string;
   isDanger?: boolean;
+  hideCancel?: boolean;
 }
 
 const ConfirmationModal: React.FC<Props> = ({ 
@@ -82,7 +83,8 @@ const ConfirmationModal: React.FC<Props> = ({
   onCancel,
   confirmText,
   cancelText,
-  isDanger = false
+  isDanger = false,
+  hideCancel = false
 }) => {
   const { t } = useTranslation();
   
@@ -94,9 +96,11 @@ const ConfirmationModal: React.FC<Props> = ({
         {title && <Title>{title}</Title>}
         <Message>{message}</Message>
         <ButtonRow>
-          <Button $variant="secondary" onClick={onCancel}>
-            {cancelText || t('cancel')}
-          </Button>
+          {!hideCancel && (
+            <Button $variant="secondary" onClick={onCancel}>
+              {cancelText || t('cancel')}
+            </Button>
+          )}
           <Button $variant={isDanger ? 'danger' : 'primary'} onClick={onConfirm}>
             {confirmText || t('confirm')}
           </Button>

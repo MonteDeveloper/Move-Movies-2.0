@@ -30,6 +30,7 @@ const ModalRenderer: React.FC = () => {
           zIndex={2000 + index}
           onClose={closeDetail}
           onCloseAll={closeAll}
+          stackIndex={index}
         />
       ))}
     </>

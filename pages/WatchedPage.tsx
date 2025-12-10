@@ -10,6 +10,7 @@ import ConfirmationModal from '../components/ConfirmationModal';
 import SearchBar from '../components/SearchBar';
 import { FixedSizeGrid as Grid, GridChildComponentProps } from 'react-window';
 import AutoSizer from 'react-virtualized-auto-sizer';
+import Snackbar from '../components/Snackbar';
 
 const PageContainer = styled.div`
   height: 100vh;
@@ -157,7 +158,7 @@ const WatchedPage: React.FC = () => {
   });
 
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
-  const [exportMsg, setExportMsg] = useState('');
+  const [showSnackbar, setShowSnackbar] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -215,11 +216,10 @@ const WatchedPage: React.FC = () => {
     });
 
     navigator.clipboard.writeText(text).then(() => {
-      setExportMsg(t('exportSuccess'));
-      setTimeout(() => setExportMsg(''), 2000);
+      setShowSnackbar(true);
+      setTimeout(() => setShowSnackbar(false), 2500);
     }).catch(() => {
-      setExportMsg(t('exportError'));
-      setTimeout(() => setExportMsg(''), 2000);
+      alert(t('exportError'));
     });
   };
 
@@ -235,8 +235,8 @@ const WatchedPage: React.FC = () => {
         
         <ActionRow>
             <ActionButton onClick={handleExport}>
-                {exportMsg ? <i className="fa-solid fa-check"></i> : <i className="fa-solid fa-share-nodes"></i>}
-                {exportMsg ? '' : t('export')}
+                <i className="fa-regular fa-copy"></i>
+                {t('copyList')}
             </ActionButton>
             <ActionButton 
                 onClick={toggleMode} 
@@ -320,6 +320,11 @@ const WatchedPage: React.FC = () => {
         onCancel={() => setIsConfirmOpen(false)}
         confirmText={t('delete')}
         isDanger
+      />
+
+      <Snackbar 
+        message={t('listCopied')} 
+        isVisible={showSnackbar} 
       />
     </PageContainer>
   );

@@ -1,3 +1,4 @@
+
 export interface Movie {
   id: number;
   title?: string;
@@ -14,6 +15,7 @@ export interface Movie {
   original_language?: string;
   original_title?: string;
   origin_country?: string[];
+  skippedAt?: number; // Timestamp for when item was skipped
 }
 
 export interface Video {
@@ -22,6 +24,8 @@ export interface Video {
   site: string;
   type: string;
   official: boolean;
+  published_at?: string;
+  iso_639_1?: string;
 }
 
 export interface ProviderInfo {

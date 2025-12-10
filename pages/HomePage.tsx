@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState, useRef, useLayoutEffect } from 'react';
 import styled from 'styled-components';
 import { tmdbService } from '../services/tmdbService';
@@ -27,6 +26,9 @@ const FixedHeader = styled.div`
   background-color: ${({ theme }) => theme.background};
   z-index: 10;
   border-bottom: 1px solid #222;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
 `;
 
 const ScrollableContent = styled.div`
@@ -242,7 +244,12 @@ const HomePage: React.FC = () => {
             <SectionTitle style={{ marginLeft: 20 }}>{t('resultsFor', { query: searchQuery })}</SectionTitle>
             {isSearching ? (
                <Grid>
-                 {[...Array(6)].map((_, i) => <SkeletonPulse key={i} width="100%" height="165px" />)}
+                 {[...Array(6)].map((_, i) => (
+                    <div key={i} style={{width: '100%', aspectRatio: '2/3'}}>
+                       <SkeletonPulse width="100%" height="100%" radius="8px" />
+                       <SkeletonPulse width="80%" height="14px" style={{marginTop: 8}} />
+                    </div>
+                 ))}
                </Grid>
             ) : searchResults.length > 0 ? (
                <Grid>

@@ -3,6 +3,7 @@ import styled, { css } from 'styled-components';
 import { Movie } from '../types';
 import { useTranslation } from 'react-i18next';
 import { useModal } from '../contexts/ModalContext';
+import { SkeletonPulse } from './Skeleton';
 
 interface CardProps {
   $fluid?: boolean;
@@ -11,7 +12,6 @@ interface CardProps {
 const Card = styled.div<CardProps>`
   display: flex;
   flex-direction: column;
-  transition: transform 0.2s;
   cursor: pointer;
   
   /* Conditional styling based on usage context */
@@ -23,10 +23,6 @@ const Card = styled.div<CardProps>`
     max-width: 140px;
     margin-right: ${({ theme }) => theme.spacing(2)};
   `}
-
-  &:hover {
-    transform: scale(1.05);
-  }
 `;
 
 const PosterContainer = styled.div`
@@ -38,10 +34,12 @@ const PosterContainer = styled.div`
   position: relative;
 `;
 
-const Poster = styled.img`
+const Poster = styled.img<{ $loaded: boolean }>`
   width: 100%;
   height: 100%;
   object-fit: cover;
+  opacity: ${props => props.$loaded ? 1 : 0};
+  transition: opacity 0.3s ease-in;
 `;
 
 const Placeholder = styled.div`
@@ -102,17 +100,19 @@ const MovieCard: React.FC<Props> = ({ movie, fluid, selected, onSelect }) => {
   const { openDetail } = useModal();
   const [imgSrc, setImgSrc] = useState<string | null>(null);
   const [hasError, setHasError] = useState(false);
+  const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
+    setIsLoaded(false);
+    setHasError(false);
     if (movie.poster_path) {
       setImgSrc(`https://image.tmdb.org/t/p/w342${movie.poster_path}`);
-      setHasError(false);
     } else if (movie.backdrop_path) {
       setImgSrc(`https://image.tmdb.org/t/p/w300${movie.backdrop_path}`);
-      setHasError(false);
     } else {
       setImgSrc(null);
       setHasError(true);
+      setIsLoaded(true); // Treat "no image" as loaded state so placeholder shows
     }
   }, [movie]);
 
@@ -121,11 +121,14 @@ const MovieCard: React.FC<Props> = ({ movie, fluid, selected, onSelect }) => {
     if (imgSrc && imgSrc.includes(movie.poster_path || '')) {
       if (movie.backdrop_path) {
          setImgSrc(`https://image.tmdb.org/t/p/w300${movie.backdrop_path}`);
+         setIsLoaded(false); // Reset load state for fallback
       } else {
          setHasError(true);
+         setIsLoaded(true);
       }
     } else {
       setHasError(true);
+      setIsLoaded(true);
     }
   };
 
@@ -153,14 +156,28 @@ const MovieCard: React.FC<Props> = ({ movie, fluid, selected, onSelect }) => {
              {selected && <i className="fa-solid fa-check" style={{fontSize: 12, color: 'white'}}></i>}
           </SelectionOverlay>
         )}
-        {!hasError && imgSrc ? (
+        
+        {/* Render Image if available */}
+        {!hasError && imgSrc && (
           <Poster 
             src={imgSrc} 
             alt={movie.title || movie.name} 
             loading="lazy"
+            onLoad={() => setIsLoaded(true)}
             onError={handleError}
+            $loaded={isLoaded}
           />
-        ) : (
+        )}
+        
+        {/* Render Skeleton while loading */}
+        {!isLoaded && !hasError && (
+           <div style={{position: 'absolute', inset: 0, zIndex: 1}}>
+              <SkeletonPulse height="100%" radius="0" />
+           </div>
+        )}
+
+        {/* Render Placeholder strictly on error */}
+        {hasError && (
           <Placeholder>{t('imageNotAvailable')}</Placeholder>
         )}
       </PosterContainer>

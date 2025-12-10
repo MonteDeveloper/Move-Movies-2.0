@@ -15,7 +15,7 @@ const defaultFilters: FilterState = {
   excludeGenres: [],
   includeProviders: [],
   excludeProviders: [],
-  runtimeRange: [0, 240],
+  runtimeRange: [60, 240], // Default min runtime set to 60
   includeCountries: [],
   excludeCountries: []
 };
