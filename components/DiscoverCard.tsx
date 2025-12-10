@@ -129,6 +129,7 @@ const Description = styled.p`
   max-width: 85%;
   color: #ccc;
   margin-top: 4px; 
+  margin-bottom: 20px; 
 `;
 
 const Actions = styled.div`
