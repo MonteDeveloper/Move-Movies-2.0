@@ -13,7 +13,7 @@ export const theme: ThemeType = {
   spacing: (factor: number) => `${factor * 8}px`,
 };
 
-export const GlobalStyles = createGlobalStyle`
+export const GlobalStyles = createGlobalStyle<{ theme: ThemeType }>`
   * {
     box-sizing: border-box;
     margin: 0;
@@ -22,8 +22,8 @@ export const GlobalStyles = createGlobalStyle`
 
   body {
     font-family: 'Inter', sans-serif;
-    background-color: ${({ theme }: { theme: ThemeType }) => theme.background};
-    color: ${({ theme }: { theme: ThemeType }) => theme.text};
+    background-color: ${({ theme }) => theme.background};
+    color: ${({ theme }) => theme.text};
     -webkit-font-smoothing: antialiased;
     overflow-x: hidden;
   }

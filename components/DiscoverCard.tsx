@@ -1,22 +1,20 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import styled, { keyframes, css } from 'styled-components';
-import { Movie, ProviderInfo, getGenreName } from '../types';
+import { Movie, getGenreName, ProviderInfo } from '../types';
 import { useFavorites } from '../contexts/FavoritesContext';
 import { SkeletonPulse } from './Skeleton';
 import { useLanguage } from '../contexts/LanguageContext';
 import { formatDate } from '../utils/formatDate';
 import { useTranslation } from 'react-i18next';
-import { tmdbService } from '../services/tmdbService';
 import { useModal } from '../contexts/ModalContext';
 import { useDiscoverCache } from '../contexts/DiscoverCacheContext';
+import { tmdbService } from '../services/tmdbService';
 import Snackbar from './Snackbar';
 
 const Container = styled.div`
-  height: 100vh;
+  height: 100%;
   width: 100%;
-  scroll-snap-align: start;
-  scroll-snap-stop: always;
   position: relative;
   display: flex;
   justify-content: center;
@@ -33,8 +31,20 @@ const BackgroundImage = styled.img<{ $loaded: boolean }>`
   width: 100%;
   height: 100%;
   object-fit: cover;
-  opacity: ${props => props.$loaded ? 0.6 : 0};
-  transition: opacity 0.5s ease-in;
+  opacity: 0.6; 
+`;
+
+const SkeletonOverlay = styled.div<{ $visible: boolean }>`
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+    opacity: ${props => props.$visible ? 1 : 0};
+    pointer-events: none;
+    transition: opacity 0.3s ease-out;
+    background: black;
 `;
 
 const Placeholder = styled.div`
@@ -60,7 +70,7 @@ const Overlay = styled.div`
   padding: 60px 20px 90px 20px; 
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   z-index: 2;
   pointer-events: none; 
 `;
@@ -86,30 +96,6 @@ const Title = styled.h2`
   overflow: hidden;
 `;
 
-const fadeIn = keyframes`
-  from { opacity: 0; transform: translateY(5px); }
-  to { opacity: 1; transform: translateY(0); }
-`;
-
-const ProviderRow = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-bottom: 4px; /* Spacing between providers and title */
-  animation: ${fadeIn} 0.5s ease-out forwards;
-`;
-
-const ProviderText = styled.span`
-  background: rgba(255, 255, 255, 0.2);
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 10px;
-  color: #ddd;
-  backdrop-filter: blur(4px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  white-space: nowrap;
-`;
-
 const Info = styled.div`
   display: flex;
   gap: 12px;
@@ -129,6 +115,7 @@ const Description = styled.p`
   max-width: 85%;
   color: #ccc;
   margin-top: 4px; 
+  margin-bottom: 20px;
 `;
 
 const Actions = styled.div`
@@ -175,7 +162,7 @@ const ActionButton = styled.button<{ $active?: boolean }>`
 const TopTag = styled.div`
   position: absolute;
   top: 20px;
-  left: 20px; /* Moved to top left as requested */
+  left: 20px; 
   background: rgba(0, 0, 0, 0.6);
   padding: 4px 8px;
   border-radius: 4px;
@@ -186,6 +173,31 @@ const TopTag = styled.div`
   z-index: 10;
   backdrop-filter: blur(4px);
   border: 1px solid rgba(255,255,255,0.2);
+`;
+
+const slideUp = keyframes`
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+`;
+
+// Updated Providers Styling (Text-based, dedicated row above title)
+const ProviderRow = styled.div`
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
+  flex-wrap: wrap;
+  animation: ${slideUp} 0.5s ease-out forwards;
+`;
+
+const ProviderTextTag = styled.div`
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  backdrop-filter: blur(5px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
 `;
 
 const fadeKeyframes = keyframes`
@@ -216,95 +228,95 @@ const Tooltip = styled.div`
 
 interface Props {
   movie: Movie;
+  style?: React.CSSProperties; 
 }
 
-const DiscoverCard: React.FC<Props> = ({ movie }) => {
+const DiscoverCard: React.FC<Props> = ({ movie, style }) => {
   const { t } = useTranslation();
   const { isFavorite, addFavorite, removeFavorite, isWatched, addWatched, removeWatched } = useFavorites();
   const { openDetail } = useModal();
   const { currentLanguage } = useLanguage();
-  const { hasOpenedDetail, setHasOpenedDetail } = useDiscoverCache();
+  const { hasOpenedDetail, setHasOpenedDetail, providerCache, updateProviderCache } = useDiscoverCache();
 
+  // Basic Image State
   const [imageLoaded, setImageLoaded] = useState(false);
   const [hasError, setHasError] = useState(false);
+  
+  // Title Fallback State
+  const [displayTitle, setDisplayTitle] = useState(movie.title || movie.name);
+  const [loadingTitle, setLoadingTitle] = useState(false);
+  
+  // Providers State
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [showProviders, setShowProviders] = useState(false);
+  const [isCardVisible, setIsCardVisible] = useState(false);
+
   const liked = isFavorite(movie.id);
   const watched = isWatched(movie.id);
-
-  // Title State for Fallback Logic
-  const [displayTitle, setDisplayTitle] = useState(movie.title || movie.name);
-  
-  // Ref for the image to check cached status (Safari fix)
   const imgRef = useRef<HTMLImageElement>(null);
-
-  // Initialize imgSrc directly to avoid initial null render which causes error
-  const [imgSrc, setImgSrc] = useState<string | null>(() => {
-    if (movie.poster_path) return `https://image.tmdb.org/t/p/original${movie.poster_path}`;
-    if (movie.backdrop_path) return `https://image.tmdb.org/t/p/original${movie.backdrop_path}`;
-    return null;
-  });
-  
-  // Tooltip Logic
-  const [showTooltip, setShowTooltip] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-
-  // Snackbar Logic
   const [snackbarMsg, setSnackbarMsg] = useState('');
   const [showSnackbar, setShowSnackbar] = useState(false);
 
+  // Tooltip
+  const [showTooltip, setShowTooltip] = useState(false);
+
+  // 1. Initial Data Setup & Title Logic
   useEffect(() => {
-    // Reset state on movie change or component remount with different movie
+    // Reset states when movie prop changes
     setImageLoaded(false);
     setHasError(false);
     setShowTooltip(false);
-    setProviders([]);
     setShowSnackbar(false);
-    setDisplayTitle(movie.title || movie.name);
-
+    
+    // Check if we have cached providers for this movie
+    const cachedProviders = providerCache[movie.id];
+    if (cachedProviders) {
+        setProviders(cachedProviders);
+        setShowProviders(true);
+    } else {
+        setProviders([]);
+        setShowProviders(false);
+    }
+    
+    // -- Image Logic --
+    // OPTIMIZATION: Use w780 for posters and w1280 for backdrops instead of original
     let url = null;
     if (movie.poster_path) {
-        url = `https://image.tmdb.org/t/p/original${movie.poster_path}`;
+        url = `https://image.tmdb.org/t/p/w780${movie.poster_path}`;
     } else if (movie.backdrop_path) {
-        url = `https://image.tmdb.org/t/p/original${movie.backdrop_path}`;
+        url = `https://image.tmdb.org/t/p/w1280${movie.backdrop_path}`;
     } else {
         setHasError(true);
     }
     setImgSrc(url);
-    
-    // FETCH INDEPENDENTLY
-    
-    // 1. Providers
-    tmdbService.getWatchProviders(movie.id, movie.media_type || 'movie')
-      .then(p => {
-          if (p && p.flatrate) setProviders(p.flatrate);
-      })
-      .catch(() => {});
 
-    // 2. Title Fallback Logic
-    const checkTitleFallback = async () => {
-        const currentLang = currentLanguage;
-        const origLang = movie.original_language;
+    // -- Title Fallback Logic --
+    // Reset title initially
+    setDisplayTitle(movie.title || movie.name);
+    setLoadingTitle(false);
+
+    const checkTitle = async () => {
         const title = movie.title || movie.name;
         const original = movie.original_title || movie.original_name;
-
-        // Strict alignment with DetailPage logic for Title Update
         const isTitleSame = title === original;
         
+        // If app is NOT English, but content is same as original (likely untranslated),
+        // and original is NOT English (e.g. Japanese anime with Japanese title in Italian app),
+        // try to fetch English title.
         const needsFallback = (
-           currentLang !== 'en' &&
-           origLang !== 'en' && 
-           origLang !== currentLang &&
-           isTitleSame
+            currentLanguage !== 'en' &&
+            movie.original_language !== 'en' &&
+            movie.original_language !== currentLanguage &&
+            isTitleSame
         );
 
         if (needsFallback) {
+            setLoadingTitle(true);
             try {
-                // Infer media type if missing to ensure we hit the correct endpoint
+                // Infer type
                 let type = movie.media_type;
-                if (!type) {
-                     if (movie.name) type = 'tv'; 
-                     else type = 'movie'; 
-                }
+                if (!type) type = movie.name ? 'tv' : 'movie';
                 
                 const enData = await tmdbService.getDetails(movie.id, type, 'en-US');
                 const enTitle = enData.title || enData.name;
@@ -313,44 +325,45 @@ const DiscoverCard: React.FC<Props> = ({ movie }) => {
                     setDisplayTitle(enTitle);
                 }
             } catch (e) {
-                console.warn("Title fallback fetch failed for discover card", movie.id, e);
+                // Keep original if fail
+            } finally {
+                setLoadingTitle(false);
             }
         }
     };
-    
-    checkTitleFallback();
+    checkTitle();
 
-  }, [movie, currentLanguage]);
+  }, [movie, currentLanguage]); // Intentionally omitting providerCache from dependency to avoid loop, it's checked on mount
 
-  // Safari Fix: Check immediately if image is already loaded from cache
-  useEffect(() => {
-    if (imgRef.current && imgSrc) {
-      if (imgRef.current.complete && imgRef.current.naturalWidth > 0) {
-        setImageLoaded(true);
-      }
+  const [imgSrc, setImgSrc] = useState<string | null>(null);
+
+  // Safari/Cache Fix
+  useLayoutEffect(() => {
+    if (imgRef.current && imgSrc && imgRef.current.complete) {
+      setImageLoaded(true);
     }
   }, [imgSrc]);
 
-  // Interaction / Tooltip Logic
+  // 2. Intersection Observer for Visibility Tracking & Tooltip
   useEffect(() => {
-    // Wait until detail opened OR image is loaded before starting the timer
-    if (hasOpenedDetail || !imageLoaded) return; 
+    if (hasOpenedDetail) return; 
 
-    let timer: any;
-    let cycleTimer: any;
+    let tooltipTimer: any;
+    let tooltipCycle: any;
+
     const observer = new IntersectionObserver(
         ([entry]) => {
+            setIsCardVisible(entry.isIntersecting);
+
             if (entry.isIntersecting && !hasOpenedDetail && imageLoaded) {
-                // User is looking at this card AND image is loaded
-                timer = setTimeout(() => {
-                    // Double check before showing
+                // Tooltip Logic
+                tooltipTimer = setTimeout(() => {
                     if (!hasOpenedDetail) {
                         setShowTooltip(true);
-                        // Cycle logic
-                        cycleTimer = setInterval(() => {
+                        tooltipCycle = setInterval(() => {
                              if(hasOpenedDetail) {
                                  setShowTooltip(false);
-                                 clearInterval(cycleTimer);
+                                 clearInterval(tooltipCycle);
                                  return;
                              }
                             setShowTooltip(false);
@@ -359,10 +372,10 @@ const DiscoverCard: React.FC<Props> = ({ movie }) => {
                             }, 10000); 
                         }, 15000); 
                     }
-                }, 10000); // 10s inactivity AFTER image load
+                }, 10000); 
             } else {
-                clearTimeout(timer);
-                clearInterval(cycleTimer);
+                clearTimeout(tooltipTimer);
+                clearInterval(tooltipCycle);
                 setShowTooltip(false);
             }
         },
@@ -375,10 +388,68 @@ const DiscoverCard: React.FC<Props> = ({ movie }) => {
 
     return () => {
         observer.disconnect();
-        clearTimeout(timer);
-        clearInterval(cycleTimer);
+        clearTimeout(tooltipTimer);
+        clearInterval(tooltipCycle);
     };
   }, [hasOpenedDetail, imageLoaded]); 
+
+  // 3. Provider Fetch Logic (5s Delay on Visible, Cached)
+  useEffect(() => {
+      let providerTimer: any;
+
+      // Check cache inside effect to ensure freshness
+      const cached = providerCache[movie.id];
+      const hasData = cached || providers.length > 0;
+
+      if (isCardVisible) {
+          if (hasData) {
+             // Already have data, ensure it's shown
+             if(!showProviders) setShowProviders(true);
+             if(!providers.length && cached) setProviders(cached);
+          } else {
+             // Start timer to fetch
+             providerTimer = setTimeout(async () => {
+                 try {
+                     // Infer type
+                     let type = movie.media_type;
+                     if (!type) type = movie.name ? 'tv' : 'movie';
+
+                     const watchData = await tmdbService.getWatchProviders(movie.id, type);
+                     if (watchData) {
+                         const flatrate = watchData.flatrate || [];
+                         const rent = watchData.rent || [];
+                         const buy = watchData.buy || [];
+                         
+                         // Prioritize Flatrate -> Rent -> Buy. Take top 3 unique.
+                         const combined = [...flatrate, ...rent, ...buy];
+                         const uniqueMap = new Map();
+                         combined.forEach(p => {
+                             if(!uniqueMap.has(p.provider_id)) uniqueMap.set(p.provider_id, p);
+                         });
+                         
+                         const topProviders = Array.from(uniqueMap.values()).slice(0, 3);
+                         
+                         // Update Local and Cache
+                         setProviders(topProviders);
+                         updateProviderCache(movie.id, topProviders);
+                         
+                         if (topProviders.length > 0) {
+                             setShowProviders(true);
+                         }
+                     }
+                 } catch (e) {
+                     console.error("Provider fetch error", e);
+                 }
+            }, 5000);
+          }
+      } else {
+          // If user scrolls away before 5s or card invisible, cancel request
+          clearTimeout(providerTimer);
+      }
+
+      return () => clearTimeout(providerTimer);
+  }, [isCardVisible, movie.id, movie.media_type, movie.name, providerCache, updateProviderCache]);
+
 
   const showFeedback = (msg: string) => {
     setSnackbarMsg(msg);
@@ -412,12 +483,12 @@ const DiscoverCard: React.FC<Props> = ({ movie }) => {
 
   const handleImageError = () => {
      if (!imgSrc) return;
-
+     // Fallback if optimized image fails (unlikely, but safe)
      if (movie.poster_path && imgSrc.includes(movie.poster_path) && movie.backdrop_path) {
-         setImgSrc(`https://image.tmdb.org/t/p/original${movie.backdrop_path}`);
+         setImgSrc(`https://image.tmdb.org/t/p/w1280${movie.backdrop_path}`);
      } else {
          setHasError(true);
-         setImageLoaded(true); // Stop skeleton if error
+         setImageLoaded(true); 
      }
   };
 
@@ -436,18 +507,13 @@ const DiscoverCard: React.FC<Props> = ({ movie }) => {
     ? t(`genre_${firstGenreId}`, firstGenreName) 
     : null;
     
-  // Top Tag only shows Media Type now, strictly
-  const topTagLabel = mediaType;
-
   return (
-    <Container ref={containerRef} onClick={handleCardClick}>
-      <TopTag>{topTagLabel}</TopTag>
+    <Container ref={containerRef} onClick={handleCardClick} style={style}>
+      <TopTag>{mediaType}</TopTag>
       
-      {!imageLoaded && !hasError && (
-        <div style={{position: 'absolute', inset: 0, zIndex: 1}}>
-           <SkeletonPulse height="100%" radius="0" />
-        </div>
-      )}
+      <SkeletonOverlay $visible={!imageLoaded && !hasError}>
+         <SkeletonPulse height="100%" radius="0" />
+      </SkeletonOverlay>
       
       {hasError ? (
           <Placeholder>{t('imageNotAvailable')}</Placeholder>
@@ -460,6 +526,7 @@ const DiscoverCard: React.FC<Props> = ({ movie }) => {
               onLoad={() => setImageLoaded(true)}
               onError={handleImageError}
               $loaded={imageLoaded}
+              decoding="sync"
             />
           ) : null
       )}
@@ -470,7 +537,7 @@ const DiscoverCard: React.FC<Props> = ({ movie }) => {
              {t('tapToView')}
           </Tooltip>
       )}
-      
+
       <Overlay>
         {!imageLoaded && !hasError ? (
           <>
@@ -480,18 +547,23 @@ const DiscoverCard: React.FC<Props> = ({ movie }) => {
           </>
         ) : (
           <>
-            {providers.length > 0 && (
+            {/* Provider Tags - Placed above title in flux to avoid overlap */}
+            {providers.length > 0 && showProviders && (
                 <ProviderRow>
-                    {providers.slice(0, 3).map((p, i) => (
-                        <ProviderText key={`${p.provider_id}-${i}`} title={p.provider_name}>
-                          {p.provider_name}
-                        </ProviderText>
+                    {providers.map(prov => (
+                        <ProviderTextTag key={prov.provider_id}>
+                            {prov.provider_name}
+                        </ProviderTextTag>
                     ))}
                 </ProviderRow>
             )}
 
             <TitleRow>
-              <Title>{displayTitle}</Title>
+              {loadingTitle ? (
+                  <SkeletonPulse width="80%" height="24px" style={{marginBottom: 5}} />
+              ) : (
+                  <Title>{displayTitle}</Title>
+              )}
             </TitleRow>
             
             <Info>

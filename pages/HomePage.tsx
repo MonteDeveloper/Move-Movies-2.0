@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useRef, useLayoutEffect } from 'react';
+
+import React, { useEffect, useState, useRef, useLayoutEffect, useMemo, useCallback } from 'react';
 import styled from 'styled-components';
 import { tmdbService } from '../services/tmdbService';
 import MovieCard from '../components/MovieCard';
@@ -86,12 +87,13 @@ const NoData = styled.div`
 `;
 
 // Separate component for independent loading
-const MovieSection: React.FC<{ 
+// Memoized to prevent re-renders unless fetchFn actually changes
+const MovieSection = React.memo<{ 
   title: string; 
   fetchFn: () => Promise<Movie[]>; 
   storageKey: string; 
   setSliderRef: (key: string, el: HTMLDivElement | null) => void 
-}> = ({ title, fetchFn, storageKey, setSliderRef }) => {
+}>(({ title, fetchFn, storageKey, setSliderRef }) => {
   const [data, setData] = useState<Movie[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -140,7 +142,7 @@ const MovieSection: React.FC<{
       </Slider>
     </Section>
   );
-};
+});
 
 const HomePage: React.FC = () => {
   const { t } = useTranslation();
@@ -150,10 +152,8 @@ const HomePage: React.FC = () => {
   const [searchResults, setSearchResults] = useState<Movie[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   
-  // Refs for scroll persistence
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const sliderRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const scrollRestoredRef = useRef(false);
 
   // Save state on unmount
   useEffect(() => {
@@ -172,10 +172,6 @@ const HomePage: React.FC = () => {
 
   // Restore Scroll Position
   useLayoutEffect(() => {
-    // We try to restore immediately, but since content loads asynchronously, 
-    // we might need to rely on the sections preserving height or restore after load.
-    // However, since we split components, each will reflow. 
-    // Best effort restore:
     const savedScrollY = sessionStorage.getItem('home_scroll_y');
     if (savedScrollY && scrollContainerRef.current) {
       setTimeout(() => {
@@ -183,9 +179,6 @@ const HomePage: React.FC = () => {
       }, 100);
     }
     
-    // Slider restore logic needs to happen inside the component ideally or via ref callback
-    // With dynamic loading, restoring slider X position is tricky from parent.
-    // We pass setSliderRef to capture them.
     const restoreSliders = () => {
         const savedSliderScrolls = sessionStorage.getItem('home_slider_scrolls');
         if (savedSliderScrolls) {
@@ -196,13 +189,11 @@ const HomePage: React.FC = () => {
           });
         }
     };
-    // Attempt restore periodically or after some delay
     setTimeout(restoreSliders, 500);
     setTimeout(restoreSliders, 1500);
 
   }, []);
 
-  // Handle Search
   useEffect(() => {
     const delayDebounceFn = setTimeout(async () => {
       if (searchQuery.length > 2) {
@@ -223,10 +214,16 @@ const HomePage: React.FC = () => {
     return () => clearTimeout(delayDebounceFn);
   }, [searchQuery, currentLanguage]);
 
-  const setSliderRef = (key: string, el: HTMLDivElement | null) => {
+  const setSliderRef = useCallback((key: string, el: HTMLDivElement | null) => {
     if (el) sliderRefs.current.set(key, el);
     else sliderRefs.current.delete(key);
-  };
+  }, []);
+
+  // Memoize fetch functions to prevent MovieSection re-renders/flicker
+  const fetchTrendingMovies = useCallback(() => tmdbService.getTrending('movie'), []);
+  const fetchTrendingTv = useCallback(() => tmdbService.getTrending('tv'), []);
+  const fetchTopRated = useCallback(() => tmdbService.getTopRated('movie'), []);
+  const fetchPopularTv = useCallback(() => tmdbService.getPopular('tv'), []);
 
   return (
     <PageContainer>
@@ -266,28 +263,28 @@ const HomePage: React.FC = () => {
             <MovieSection 
                 key={`trend_mov_${currentLanguage}`} 
                 title={t('trendingMovies')} 
-                fetchFn={() => tmdbService.getTrending('movie')} 
+                fetchFn={fetchTrendingMovies} 
                 storageKey="trending_movies"
                 setSliderRef={setSliderRef}
             />
             <MovieSection 
                 key={`trend_tv_${currentLanguage}`} 
                 title={t('trendingSeries')} 
-                fetchFn={() => tmdbService.getTrending('tv')} 
+                fetchFn={fetchTrendingTv} 
                 storageKey="trending_series"
                 setSliderRef={setSliderRef}
             />
             <MovieSection 
                 key={`top_mov_${currentLanguage}`} 
                 title={t('topRated')} 
-                fetchFn={() => tmdbService.getTopRated('movie')} 
+                fetchFn={fetchTopRated} 
                 storageKey="top_rated"
                 setSliderRef={setSliderRef}
             />
             <MovieSection 
                 key={`pop_tv_${currentLanguage}`} 
                 title={t('popularSeries')} 
-                fetchFn={() => tmdbService.getPopular('tv')} 
+                fetchFn={fetchPopularTv} 
                 storageKey="popular_series"
                 setSliderRef={setSliderRef}
             />

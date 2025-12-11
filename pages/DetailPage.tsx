@@ -385,6 +385,11 @@ const ActionButton = styled.button<{ $primary?: boolean; $active?: boolean }>`
   &:hover {
     opacity: 0.9;
   }
+  
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 `;
 
 const BackToTopButton = styled.button`
@@ -872,7 +877,6 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
 
     const loadData = async () => {
          try {
-             // 1. Fetch Main Details (Blocking only for Hero/Header)
              let detailsData = await tmdbService.getDetails(numId, mediaType);
              
              // --- TITLE & OVERVIEW FALLBACK LOGIC ---
@@ -928,8 +932,6 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
                  }
              }
 
-             // --- INDEPENDENT ASYNC FETCHES ---
-             
              // 2. Videos Logic
              (async () => {
                  try {
@@ -940,7 +942,6 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
                          if (v.official) score += 500;
                          if (v.type === 'Trailer') score += 200;
                          else if (v.type === 'Teaser') score += 50;
-                         // Date bonus
                          if (v.published_at) score += new Date(v.published_at).getTime() / 1e13; 
                          return score;
                      };
@@ -954,7 +955,6 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
                                     if(s.results) res.push(...s.results);
                                 } catch {}
                              } else {
-                                // Fallback general fetch logic if season number not provided specifically
                                 try {
                                     const main = await tmdbService.getVideos(numId, mediaType, lang);
                                     if (main.results) res.push(...main.results);
@@ -990,16 +990,11 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
                          return unique;
                      };
 
-                     // --- STRATEGY ---
-                     // Movie: Just fetch.
-                     // TV: Prioritize Season 1. If empty, go to Anti-Spoiler Logic.
-
                      let finalQueue: Video[] = [];
                      
                      if (mediaType === 'tv') {
-                        // 1. Fetch S1 & General (General often contains S1/Series trailers)
                         const p1_s1 = fetchAndScore(currentLanguage === 'it' ? 'it-IT' : 'en-US', 1);
-                        const p1_main = fetchAndScore(currentLanguage === 'it' ? 'it-IT' : 'en-US'); // General
+                        const p1_main = fetchAndScore(currentLanguage === 'it' ? 'it-IT' : 'en-US'); 
                         
                         const p2_s1 = currentLanguage !== 'en' ? fetchAndScore('en-US', 1) : Promise.resolve([]);
                         const p2_main = currentLanguage !== 'en' ? fetchAndScore('en-US') : Promise.resolve([]);
@@ -1012,14 +1007,11 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
                         
                         finalQueue = await processCandidates(candidates);
                         
-                        // If NO safe S1/General trailers found, try finding latest season
                         if (finalQueue.length === 0) {
-                            // Find latest season number
                             const seasons = detailsData.seasons || [];
                             const maxSeason = seasons.reduce((max, s) => (s.season_number > max ? s.season_number : max), 0);
                             
                             if (maxSeason > 1) {
-                                // Fetch latest season trailers
                                 const p1_latest = fetchAndScore(currentLanguage === 'it' ? 'it-IT' : 'en-US', maxSeason);
                                 const p2_latest = currentLanguage !== 'en' ? fetchAndScore('en-US', maxSeason) : Promise.resolve([]);
                                 
@@ -1029,8 +1021,7 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
                                 
                                 if (sortedLatest.length > 0 && mounted) {
                                     setSpoilerPlaceholder({ season: maxSeason, video: sortedLatest[0] });
-                                    setBestTrailer(sortedLatest[0]); // Used for external link
-                                    // Queue remains empty until user clicks placeholder
+                                    setBestTrailer(sortedLatest[0]); 
                                 } else if (mounted) {
                                     setAllVideosFailed(true);
                                 }
@@ -1043,7 +1034,6 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
                         }
 
                      } else {
-                         // Movie Logic (Standard)
                          const p1 = fetchAndScore(currentLanguage === 'it' ? 'it-IT' : 'en-US');
                          const p2 = currentLanguage !== 'en' ? fetchAndScore('en-US') : Promise.resolve([]);
                          const p3 = (detailsData.original_language && detailsData.original_language !== 'en' && detailsData.original_language !== currentLanguage) 
@@ -1068,7 +1058,6 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
                  }
              })();
 
-             // 3. Credits (Independent)
              tmdbService.getCredits(numId, mediaType).then(cred => {
                  if (mounted) {
                      setCast(cred.cast || []);
@@ -1077,7 +1066,6 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
                  }
              }).catch(() => mounted && setLoadingCast(false));
 
-             // 4. Providers (Independent)
              tmdbService.getWatchProviders(numId, mediaType).then(prov => {
                  if (mounted) {
                      setProviders(prov);
@@ -1085,7 +1073,6 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
                  }
              }).catch(() => mounted && setLoadingProviders(false));
 
-             // 5. Recommendations (Independent)
              tmdbService.getRecommendations(numId, mediaType).then(recs => {
                  if (mounted) {
                      setRecommendations(recs || []);
@@ -1093,7 +1080,6 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
                  }
              }).catch(() => mounted && setLoadingRecommendations(false));
 
-             // 6. Images/Gallery (Independent)
              tmdbService.getImages(numId, mediaType).then(imgs => {
                  if (mounted) {
                      setGallery(imgs.backdrops?.slice(0, 15) || []);
@@ -1118,7 +1104,6 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
     return () => { mounted = false; };
   }, [id, type, currentLanguage]);
 
-  // Update loading state when modal changes to avoid stale loading skeleton
   useEffect(() => {
     if (episodeModal && detail?.seasons) {
         const { sIdx, eIdx } = episodeModal;
@@ -1215,7 +1200,6 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
                   setSeasonEpisodes(prev => ({...prev, [nextSeason.season_number]: data.episodes as any[]}));
                   handleEpisodeChange(sIdx + 1, 0);
               } catch (e) {
-                  // error
               } finally {
                   setLoadingEpisodeNav(false);
               }
@@ -1242,7 +1226,6 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
                   setSeasonEpisodes(prev => ({...prev, [prevSeason.season_number]: data.episodes as any[]}));
                   handleEpisodeChange(sIdx - 1, (data.episodes?.length || 1) - 1);
               } catch (e) {
-                  // error
               } finally {
                   setLoadingEpisodeNav(false);
               }
@@ -1310,7 +1293,6 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
       if (spoilerPlaceholder) {
           setVideoQueue([spoilerPlaceholder.video]);
           setSpoilerPlaceholder(null);
-          // YouTube player will auto mount and play
       }
   };
   
@@ -1392,7 +1374,6 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
   const dates = getReleaseDates();
   const getInitials = (name: string) => name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
   
-  // Render Gallery Modal
   const renderGalleryModal = () => {
       if (galleryIndex === null) return null;
       const img = gallery[galleryIndex];
@@ -1437,7 +1418,6 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
       );
   };
   
-  // Render Season Modal (List of episodes)
   const renderSeasonModal = () => {
       if (openSeasonNumber === null || !detail?.seasons) return null;
       const seasonIndex = detail.seasons.findIndex(s => s.season_number === openSeasonNumber);
@@ -1474,7 +1454,6 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
       );
   };
 
-  // Render Episode Modal (Detail)
   const renderEpisodeModal = () => {
       if (!episodeModal || !detail?.seasons) return null;
       const { sIdx, eIdx } = episodeModal;
@@ -1559,7 +1538,6 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
 
   return (
     <Container ref={containerRef} $zIndex={zIndex} $isLocked={isModalOpen}>
-      {/* Navigation Buttons */}
       {stackIndex > 0 && (
         <BackButton onClick={onClose}>
             <i className="fa-solid fa-arrow-left"></i>
@@ -1596,7 +1574,6 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
             <span>{formatDate(detail.release_date || detail.first_air_date, currentLanguage)}</span>
             {detail.runtime && <span>{detail.runtime} {t('min')}</span>}
           </Meta>
-          {/* SAFE RENDERING WITH OPTIONAL CHAINING */}
           <div style={{display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap'}}>
             {detail.genres?.map(g => (
               <Tag key={g.id}>{t(`genre_${g.id}`, g.name)}</Tag>
@@ -1619,8 +1596,7 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
               </ActionButton>
           </ButtonsRow>
 
-          {/* Fallback button shown ONLY if ALL embeds fail */}
-          {allVideosFailed && (
+          {allVideosFailed && bestTrailer && (
               <div style={{ marginBottom: 15 }}>
                   <ActionButton 
                       $primary 
@@ -1636,7 +1612,6 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
         </HeaderContent>
       )}
 
-      {/* Video Player Section with Placeholder Logic */}
       {!allVideosFailed && (videoQueue.length > 0 || spoilerPlaceholder) && (
         <StickyVideoContainer $isSticky={isPlayerVisible}>
            {spoilerPlaceholder && !isPlayerVisible ? (
@@ -1661,7 +1636,6 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
         </StickyVideoContainer>
       )}
 
-      {/* Main Trailer Link Bar - Shown ONLY if player is visible AND playing video is NOT the best trailer */}
       {isPlayerVisible && bestTrailer && playingVideoKey && playingVideoKey !== bestTrailer.key && (
           <TrailerBar 
               onClick={() => window.open(`https://www.youtube.com/watch?v=${bestTrailer.key}`, '_blank', 'noopener,noreferrer')}
@@ -1722,7 +1696,6 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
                    <InfoValue>{getStatusText(detail.status)}</InfoValue>
                 </InfoItem>
               )}
-              {/* SAFE RENDERING WITH OPTIONAL CHAINING */}
               {detail.origin_country && detail.origin_country.length > 0 && (
                  <InfoItem>
                    <InfoLabel>{t('originCountry')}</InfoLabel>
@@ -1744,7 +1717,6 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
                   <InfoValue>{formatDate(dates.local, currentLanguage)}</InfoValue>
                 </InfoItem>
               )}
-              {/* SAFE RENDERING WITH OPTIONAL CHAINING */}
               {detail.production_companies && detail.production_companies.length > 0 && (
                 <InfoItem>
                    <InfoLabel>{t('productionCompanies')}</InfoLabel>
@@ -1755,7 +1727,6 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
           </>
         )}
 
-        {/* KEYWORDS SECTION */}
         {keywords.length > 0 && (
             <>
                 <SectionHeader>
@@ -1894,7 +1865,6 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
 
       </BodyContent>
 
-      {/* Moved BackToTopButton to the end of the return to avoid index shifting in DOM causing iframe reload */}
       {showScrollTop && !isModalOpen && (
           <BackToTopButton onClick={scrollToTop}>
               <i className="fa-solid fa-arrow-up"></i>

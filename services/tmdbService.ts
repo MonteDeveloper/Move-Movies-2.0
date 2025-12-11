@@ -4,6 +4,12 @@ import { FilterState, MediaDetail, Movie, Season, WatchProviders, Review, CrewMe
 
 const BASE_URL = 'https://api.themoviedb.org/3';
 
+export interface DiscoverResult {
+  results: Movie[];
+  total_pages: number;
+  total_results: number;
+}
+
 class TmdbService {
   private apiKey: string = '';
   private language: string = 'it-IT'; // Default Italian
@@ -112,7 +118,8 @@ class TmdbService {
     return data.results;
   }
 
-  async discover(type: 'movie' | 'tv', page: number, filters: FilterState): Promise<Movie[]> {
+  // UPDATED: Return DiscoverResult including metadata
+  async discover(type: 'movie' | 'tv', page: number, filters: FilterState): Promise<DiscoverResult> {
     const region = this.language.startsWith('it') ? 'IT' : 'US';
     
     const params: Record<string, string | number> = {
@@ -173,8 +180,13 @@ class TmdbService {
       }
     }
 
-    const data = await this.fetch<{ results: Movie[] }>(`/discover/${type}`, params);
-    return data.results.map(m => ({ ...m, media_type: type }));
+    const data = await this.fetch<{ results: Movie[]; total_pages: number; total_results: number }>(`/discover/${type}`, params);
+    
+    return {
+        results: data.results.map(m => ({ ...m, media_type: type })),
+        total_pages: data.total_pages,
+        total_results: data.total_results
+    };
   }
 
   // CORE Details (lightweight but includes release dates for local info)
