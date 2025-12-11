@@ -129,7 +129,6 @@ const Description = styled.p`
   max-width: 85%;
   color: #ccc;
   margin-top: 4px; 
-  margin-bottom: 20px; 
 `;
 
 const Actions = styled.div`
@@ -231,6 +230,9 @@ const DiscoverCard: React.FC<Props> = ({ movie }) => {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const liked = isFavorite(movie.id);
   const watched = isWatched(movie.id);
+
+  // Title State for Fallback Logic
+  const [displayTitle, setDisplayTitle] = useState(movie.title || movie.name);
   
   // Ref for the image to check cached status (Safari fix)
   const imgRef = useRef<HTMLImageElement>(null);
@@ -257,6 +259,7 @@ const DiscoverCard: React.FC<Props> = ({ movie }) => {
     setShowTooltip(false);
     setProviders([]);
     setShowSnackbar(false);
+    setDisplayTitle(movie.title || movie.name);
 
     let url = null;
     if (movie.poster_path) {
@@ -267,20 +270,57 @@ const DiscoverCard: React.FC<Props> = ({ movie }) => {
         setHasError(true);
     }
     setImgSrc(url);
+    
+    // FETCH INDEPENDENTLY
+    
+    // 1. Providers
+    tmdbService.getWatchProviders(movie.id, movie.media_type || 'movie')
+      .then(p => {
+          if (p && p.flatrate) setProviders(p.flatrate);
+      })
+      .catch(() => {});
 
-    // Fetch providers lightly
-    const fetchProviders = async () => {
-      try {
-        const p = await tmdbService.getWatchProviders(movie.id, movie.media_type || 'movie');
-        if (p && p.flatrate) {
-            setProviders(p.flatrate);
+    // 2. Title Fallback Logic
+    const checkTitleFallback = async () => {
+        const currentLang = currentLanguage;
+        const origLang = movie.original_language;
+        const title = movie.title || movie.name;
+        const original = movie.original_title || movie.original_name;
+
+        // Strict alignment with DetailPage logic for Title Update
+        const isTitleSame = title === original;
+        
+        const needsFallback = (
+           currentLang !== 'en' &&
+           origLang !== 'en' && 
+           origLang !== currentLang &&
+           isTitleSame
+        );
+
+        if (needsFallback) {
+            try {
+                // Infer media type if missing to ensure we hit the correct endpoint
+                let type = movie.media_type;
+                if (!type) {
+                     if (movie.name) type = 'tv'; 
+                     else type = 'movie'; 
+                }
+                
+                const enData = await tmdbService.getDetails(movie.id, type, 'en-US');
+                const enTitle = enData.title || enData.name;
+                
+                if (enTitle && enTitle !== original) {
+                    setDisplayTitle(enTitle);
+                }
+            } catch (e) {
+                console.warn("Title fallback fetch failed for discover card", movie.id, e);
+            }
         }
-      } catch (e) {
-        // ignore
-      }
     };
-    fetchProviders();
-  }, [movie.id, movie.media_type, movie.poster_path, movie.backdrop_path]);
+    
+    checkTitleFallback();
+
+  }, [movie, currentLanguage]);
 
   // Safari Fix: Check immediately if image is already loaded from cache
   useEffect(() => {
@@ -451,7 +491,7 @@ const DiscoverCard: React.FC<Props> = ({ movie }) => {
             )}
 
             <TitleRow>
-              <Title>{movie.title || movie.name}</Title>
+              <Title>{displayTitle}</Title>
             </TitleRow>
             
             <Info>

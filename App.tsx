@@ -112,7 +112,7 @@ const AppContent: React.FC = () => {
 const App: React.FC = () => {
   return (
     <ThemeProvider theme={theme}>
-      <GlobalStyles />
+      <GlobalStyles theme={theme} />
       <I18nextProvider i18n={i18n}>
         <ApiKeyProvider>
           <LanguageProvider>

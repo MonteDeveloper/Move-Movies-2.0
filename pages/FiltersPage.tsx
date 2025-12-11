@@ -1,13 +1,19 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import styled from 'styled-components';
+import styled, { keyframes } from 'styled-components';
 import { useFilters } from '../contexts/FiltersContext';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { GENRES, COUNTRIES, ProviderInfo, FilterState, getGenreName } from '../types';
+import { GENRES, COUNTRIES, FilterState, getGenreName, Keyword } from '../types';
 import { getCountryName } from '../utils/formatLocal';
 import { useLanguage } from '../contexts/LanguageContext';
 import { tmdbService } from '../services/tmdbService';
+import SearchBar from '../components/SearchBar';
+
+const fadeIn = keyframes`
+  from { opacity: 0; transform: translateY(-5px); }
+  to { opacity: 1; transform: translateY(0); }
+`;
 
 const Container = styled.div`
   padding: 20px;
@@ -54,6 +60,12 @@ const SubLabel = styled.span`
   color: ${({ theme }) => theme.textSecondary};
 `;
 
+const RangeValue = styled.span`
+  font-size: 14px;
+  color: ${({ theme }) => theme.primary};
+  font-weight: 600;
+`;
+
 const Select = styled.select`
   width: 100%;
   padding: 14px;
@@ -91,23 +103,27 @@ const Button = styled.button<{ $variant?: 'primary' | 'secondary' }>`
 `;
 
 const ChipContainer = styled.div`
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
   gap: 8px;
-  max-height: 60vh;
-  overflow-y: auto;
+  /* max-height and overflow removed to prevent scrollbars as requested */
 `;
 
 const Chip = styled.div<{ $isActive: boolean }>`
-  padding: 10px 16px;
+  padding: 10px;
   background: ${props => props.$isActive ? props.theme.primary : '#333'};
   color: white;
   border-radius: 10px;
-  font-size: 14px;
+  font-size: 12px;
   cursor: pointer;
   transition: all 0.2s;
   font-weight: 500;
   border: 1px solid transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  min-height: 40px;
 
   &:hover {
     background: ${props => props.$isActive ? props.theme.accent : '#444'};
@@ -256,20 +272,153 @@ const RangeInput = styled.input`
   }
 `;
 
-const RangeValue = styled.div`
-  text-align: right;
-  color: ${({ theme }) => theme.primary};
-  font-weight: bold;
-  font-size: 14px;
+// --- NEW KEYWORD COMPONENTS ---
+const SearchResultsContainer = styled.div`
+  margin-top: 10px;
+  margin-bottom: 15px; /* Reduced spacing */
+  background: #1a1a1a;
+  padding: 10px;
+  border-radius: 8px;
+  animation: ${fadeIn} 0.3s;
 `;
 
-// STRICT PROVIDER GROUPS (Explicit TMDB IDs)
+const SearchHeader = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+`;
+
+const SearchInfo = styled.div`
+  font-size: 12px;
+  color: #888;
+`;
+
+const CloseSearchButton = styled.button`
+  background: none;
+  border: none;
+  color: ${({ theme }) => theme.primary};
+  font-size: 12px;
+  font-weight: bold;
+  cursor: pointer;
+  padding: 4px 8px;
+  
+  &:hover {
+    text-decoration: underline;
+  }
+`;
+
+const KeywordResultsGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px;
+`;
+
+const KeywordResultChip = styled.button`
+  background: #333;
+  color: #ddd;
+  border: none;
+  border-radius: 10px;
+  padding: 8px;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: center;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.2;
+  transition: background 0.2s;
+
+  &:hover {
+    background: #444;
+    color: white;
+  }
+  
+  &:active {
+    background: #555;
+  }
+`;
+
+const SelectedKeywordsGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px;
+  margin-top: 25px;
+  animation: ${fadeIn} 0.3s;
+`;
+
+// Converted to button to make entire chip clickable
+const SelectedKeywordChip = styled.button`
+  background: ${({ theme }) => theme.primary};
+  color: white;
+  border-radius: 10px;
+  padding: 0;
+  font-size: 12px;
+  display: flex;
+  align-items: stretch;
+  overflow: hidden;
+  height: 36px;
+  border: none;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+  cursor: pointer;
+  width: 100%;
+  transition: transform 0.1s, background 0.2s;
+
+  &:hover {
+    background: ${({ theme }) => theme.accent};
+    transform: scale(0.98);
+  }
+  
+  &:active {
+    transform: scale(0.95);
+  }
+`;
+
+const KeywordText = styled.div`
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+`;
+
+const RemoveIconContainer = styled.div`
+  width: 32px;
+  background: rgba(0,0,0,0.2);
+  border-left: 1px solid rgba(255,255,255,0.2);
+  color: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+`;
+
+const WarningMessage = styled.div`
+  background: rgba(255, 170, 0, 0.15);
+  border: 1px solid #ffaa00;
+  color: #ffaa00;
+  font-size: 12px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  animation: ${fadeIn} 0.3s;
+`;
+
+// STRICT PROVIDER GROUPS
 const PROVIDER_GROUPS = [
   { name: "Netflix", ids: [8] },
   { name: "Disney+", ids: [337] },
-  { name: "Prime Video", ids: [119, 9] }, // 119 = Flatrate, 9 = Rent/Buy Video
+  { name: "Prime Video", ids: [119, 9] },
   { name: "Apple TV+", ids: [350] },
-  { name: "Max", ids: [384, 1899] }, // 384 = Max, 1899 = Max Amazon Channel
+  { name: "Max", ids: [384, 1899] },
   { name: "Paramount+", ids: [531] },
   { name: "Peacock", ids: [386] },
   { name: "Crunchyroll", ids: [283] },
@@ -287,8 +436,15 @@ const FiltersPage: React.FC = () => {
 
   const [localFilters, setLocalFilters] = useState<FilterState>(filters);
   const [genreUiMode, setGenreUiMode] = useState<'include' | 'exclude'>('include');
+  const [keywordUiMode, setKeywordUiMode] = useState<'include' | 'exclude'>('include');
   const [providerUiMode, setProviderUiMode] = useState<'include' | 'exclude'>('include');
   const [countryUiMode, setCountryUiMode] = useState<'include' | 'exclude'>('include');
+  
+  // Keyword Search State
+  const [keywordQuery, setKeywordQuery] = useState('');
+  const [keywordResults, setKeywordResults] = useState<Keyword[]>([]);
+  const [isSearchingKeywords, setIsSearchingKeywords] = useState(false);
+  const [showLimitWarning, setShowLimitWarning] = useState(false);
 
   const minYear = 1960;
   const maxYear = new Date().getFullYear();
@@ -296,6 +452,33 @@ const FiltersPage: React.FC = () => {
   const maxRuntime = 240;
   
   const starContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const delayDebounceFn = setTimeout(async () => {
+      if (keywordQuery.length > 2) {
+        setIsSearchingKeywords(true);
+        try {
+          const results = await tmdbService.searchKeywords(keywordQuery);
+          // Limit to 20 just in case, though API does pagination
+          // Check for null/undefined result
+          if (results && Array.isArray(results)) {
+             setKeywordResults(results.slice(0, 20));
+          } else {
+             setKeywordResults([]);
+          }
+        } catch (e) {
+          console.error(e);
+          setKeywordResults([]);
+        } finally {
+          setIsSearchingKeywords(false);
+        }
+      } else {
+        setKeywordResults([]);
+      }
+    }, 500);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [keywordQuery]);
 
   const handleChange = (key: string, value: any) => {
     setLocalFilters(prev => ({ ...prev, [key]: value }));
@@ -311,7 +494,6 @@ const FiltersPage: React.FC = () => {
             handleChange('includeGenres', current.filter(g => g !== id));
         } else {
             handleChange('includeGenres', [...current, id]);
-            // Enforce mutual exclusivity
             if (other.includes(id)) {
                 handleChange('excludeGenres', other.filter(g => g !== id));
             }
@@ -324,7 +506,6 @@ const FiltersPage: React.FC = () => {
             handleChange('excludeGenres', current.filter(g => g !== id));
         } else {
             handleChange('excludeGenres', [...current, id]);
-            // Enforce mutual exclusivity
             if (other.includes(id)) {
                 handleChange('includeGenres', other.filter(g => g !== id));
             }
@@ -340,14 +521,62 @@ const FiltersPage: React.FC = () => {
       }
   };
 
+  // KEYWORD LOGIC
+  const addKeyword = (keyword: Keyword) => {
+    // Check if already in list to prevent re-adding
+    const isInInclude = localFilters.includeKeywords.some(k => k.id === keyword.id);
+    const isInExclude = localFilters.excludeKeywords.some(k => k.id === keyword.id);
+    
+    // Only check limit if adding a new one
+    if (!isInInclude && !isInExclude) {
+        const total = localFilters.includeKeywords.length + localFilters.excludeKeywords.length;
+        if (total >= 10) {
+            setShowLimitWarning(true);
+            setTimeout(() => setShowLimitWarning(false), 3000);
+            return;
+        }
+    }
+
+    if (keywordUiMode === 'include') {
+       const current = localFilters.includeKeywords;
+       const other = localFilters.excludeKeywords;
+       
+       if (!current.find(k => k.id === keyword.id)) {
+           handleChange('includeKeywords', [...current, keyword]);
+           // Remove from exclude if present (swapping lists doesn't increase total count)
+           handleChange('excludeKeywords', other.filter(k => k.id !== keyword.id));
+       }
+    } else {
+       const current = localFilters.excludeKeywords;
+       const other = localFilters.includeKeywords;
+       
+       if (!current.find(k => k.id === keyword.id)) {
+           handleChange('excludeKeywords', [...current, keyword]);
+           // Remove from include if present
+           handleChange('includeKeywords', other.filter(k => k.id !== keyword.id));
+       }
+    }
+    // Intentionally NOT clearing search results
+  };
+
+  const removeKeyword = (id: number, mode: 'include' | 'exclude') => {
+      if (mode === 'include') {
+          handleChange('includeKeywords', localFilters.includeKeywords.filter(k => k.id !== id));
+      } else {
+          handleChange('excludeKeywords', localFilters.excludeKeywords.filter(k => k.id !== id));
+      }
+  };
+
+  const closeSearch = () => {
+      setKeywordQuery('');
+      setKeywordResults([]);
+  };
+
   // PROVIDER LOGIC
   const toggleProviderGroup = (ids: number[]) => {
       if (providerUiMode === 'include') {
           const current = localFilters.includeProviders;
           const other = localFilters.excludeProviders;
-          
-          // Logic: if any of the group IDs are selected, deselect them all.
-          // Otherwise, select them all.
           const isSelected = ids.some(id => current.includes(id));
 
           if (isSelected) {
@@ -355,7 +584,6 @@ const FiltersPage: React.FC = () => {
           } else {
               const newIds = Array.from(new Set([...current, ...ids]));
               handleChange('includeProviders', newIds);
-              // Mutual exclusivity
               const toRemove = ids.filter(id => other.includes(id));
               if (toRemove.length > 0) {
                   handleChange('excludeProviders', other.filter(id => !ids.includes(id)));
@@ -364,7 +592,6 @@ const FiltersPage: React.FC = () => {
       } else {
           const current = localFilters.excludeProviders;
           const other = localFilters.includeProviders;
-
           const isSelected = ids.some(id => current.includes(id));
 
           if (isSelected) {
@@ -372,7 +599,6 @@ const FiltersPage: React.FC = () => {
           } else {
               const newIds = Array.from(new Set([...current, ...ids]));
               handleChange('excludeProviders', newIds);
-              // Mutual exclusivity
               const toRemove = ids.filter(id => other.includes(id));
               if (toRemove.length > 0) {
                   handleChange('includeProviders', other.filter(id => !ids.includes(id)));
@@ -409,7 +635,6 @@ const FiltersPage: React.FC = () => {
             handleChange('includeCountries', current.filter(c => c !== iso));
         } else {
             handleChange('includeCountries', [...current, iso]);
-            // Enforce mutual exclusivity
             if (other.includes(iso)) {
                 handleChange('excludeCountries', other.filter(c => c !== iso));
             }
@@ -422,7 +647,6 @@ const FiltersPage: React.FC = () => {
             handleChange('excludeCountries', current.filter(c => c !== iso));
         } else {
             handleChange('excludeCountries', [...current, iso]);
-            // Enforce mutual exclusivity
             if (other.includes(iso)) {
                 handleChange('includeCountries', other.filter(c => c !== iso));
             }
@@ -630,6 +854,92 @@ const FiltersPage: React.FC = () => {
           </SliderContainer>
         </Section>
       )}
+
+      {/* --- KEYWORDS SECTION --- */}
+      <Section>
+        <SectionHeader>
+          <div>
+            <Label style={{display: 'block'}}>{t('keywords')}</Label>
+            <SubLabel>{t('searchKeywords')}</SubLabel>
+          </div>
+          <SwitchContainer>
+            <SwitchOption 
+               $active={keywordUiMode === 'include'} 
+               onClick={() => setKeywordUiMode('include')}
+            >
+              {t('include')}
+            </SwitchOption>
+            <SwitchOption 
+               $active={keywordUiMode === 'exclude'} 
+               onClick={() => setKeywordUiMode('exclude')}
+            >
+              {t('exclude')}
+            </SwitchOption>
+          </SwitchContainer>
+        </SectionHeader>
+
+        <SearchBar 
+          placeholder={t('searchKeywords')}
+          value={keywordQuery}
+          onChange={setKeywordQuery}
+        />
+
+        {showLimitWarning && (
+          <WarningMessage>
+             <i className="fa-solid fa-triangle-exclamation"></i>
+             Max 10 keywords allowed.
+          </WarningMessage>
+        )}
+
+        {isSearchingKeywords && <div style={{fontSize: 12, color: '#888', marginTop: 8}}>{t('loading')}</div>}
+
+        {keywordResults.length > 0 ? (
+          <SearchResultsContainer>
+             <SearchHeader>
+                 <SearchInfo>Found {keywordResults.length} items</SearchInfo>
+                 <CloseSearchButton onClick={closeSearch}>
+                    {t('close')}
+                 </CloseSearchButton>
+             </SearchHeader>
+             <KeywordResultsGrid>
+                {keywordResults.map(k => (
+                    <KeywordResultChip key={k.id} onClick={() => addKeyword(k)}>
+                       {k.name}
+                    </KeywordResultChip>
+                ))}
+             </KeywordResultsGrid>
+          </SearchResultsContainer>
+        ) : (
+          <div style={{ height: '15px' }} />
+        )}
+        
+        {renderSummary(
+            localFilters.includeKeywords.map(k => k.name),
+            localFilters.excludeKeywords.map(k => k.name)
+        )}
+
+        {/* Selected Keywords - Tab Specific */}
+        <SelectedKeywordsGrid>
+          {keywordUiMode === 'include' && localFilters.includeKeywords.map(k => (
+            <SelectedKeywordChip key={k.id} onClick={() => removeKeyword(k.id, 'include')}>
+              <KeywordText>{k.name}</KeywordText>
+              <RemoveIconContainer>
+                 <i className="fa-solid fa-times"></i>
+              </RemoveIconContainer>
+            </SelectedKeywordChip>
+          ))}
+          
+          {keywordUiMode === 'exclude' && localFilters.excludeKeywords.map(k => (
+            <SelectedKeywordChip key={k.id} onClick={() => removeKeyword(k.id, 'exclude')}>
+              <KeywordText>{k.name}</KeywordText>
+              <RemoveIconContainer>
+                 <i className="fa-solid fa-times"></i>
+              </RemoveIconContainer>
+            </SelectedKeywordChip>
+          ))}
+        </SelectedKeywordsGrid>
+
+      </Section>
 
       <Section>
         <SectionHeader>

@@ -8,8 +8,28 @@ import MovieCard from '../components/MovieCard';
 import { GENRES } from '../types';
 import ConfirmationModal from '../components/ConfirmationModal';
 import SearchBar from '../components/SearchBar';
-import { FixedSizeGrid as Grid, GridChildComponentProps } from 'react-window';
-import AutoSizer from 'react-virtualized-auto-sizer';
+import * as ReactWindow from 'react-window';
+import * as AutoSizerModule from 'react-virtualized-auto-sizer';
+
+// Robust safe resolution
+let Grid: any = null;
+try {
+  if (ReactWindow) {
+    Grid = (ReactWindow as any).FixedSizeGrid || (ReactWindow as any).default?.FixedSizeGrid;
+  }
+} catch (e) {
+  console.error("ReactWindow resolution error", e);
+}
+
+// Robust safe resolution for AutoSizer with fallback
+const AutoSizer = (AutoSizerModule as any).default || AutoSizerModule || (({ children }: any) => children({ width: 300, height: 300 }));
+
+interface GridChildComponentProps {
+    columnIndex: number;
+    rowIndex: number;
+    style: React.CSSProperties;
+    data: any;
+}
 
 const PageContainer = styled.div`
   height: 100vh;
@@ -152,6 +172,10 @@ const SessionPage: React.FC = () => {
     setIsConfirmOpen(false);
   };
 
+  if (!Grid) {
+      return <div style={{padding: 20, textAlign: 'center'}}>Error loading grid view</div>;
+  }
+
   return (
     <PageContainer>
       <FixedHeader>
@@ -200,7 +224,7 @@ const SessionPage: React.FC = () => {
           <p style={{textAlign: 'center', color: '#666', marginTop: 40}}>{t('noResults')}</p>
         ) : (
           <AutoSizer>
-            {({ height, width }) => {
+            {({ height, width }: any) => {
               const itemWidth = 140; 
               const availableWidth = width;
               const columnCount = Math.floor(availableWidth / itemWidth);

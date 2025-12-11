@@ -1,8 +1,8 @@
 
-import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import styled from 'styled-components';
-import { Video } from '../types';
 import { SkeletonPulse } from './Skeleton';
+import { Video } from '../types';
 
 const PlayerContainer = styled.div`
   position: absolute;
@@ -14,7 +14,6 @@ const PlayerContainer = styled.div`
   overflow: hidden;
 `;
 
-// Opacity transition to prevent black flash/static before API is ready
 const VideoWrapper = styled.div<{ $visible: boolean }>`
   position: absolute;
   top: 0;
@@ -28,7 +27,6 @@ const VideoWrapper = styled.div<{ $visible: boolean }>`
   align-items: center;
   justify-content: center;
 
-  /* Strictly force the iframe to fill the container */
   & iframe {
     position: absolute;
     top: 0;
@@ -37,6 +35,7 @@ const VideoWrapper = styled.div<{ $visible: boolean }>`
     height: 100% !important;
     max-width: 100% !important;
     max-height: 100% !important;
+    object-fit: contain;
     border: none;
     margin: 0;
     padding: 0;
@@ -56,166 +55,163 @@ const SkeletonOverlay = styled.div`
 `;
 
 interface Props {
-  videos: Video[];
-  onFallback: (url: string) => void; // Called when all videos fail
-  onPlayerReady: () => void; // Called when video is successfully loaded and ready to play
+  videoQueue: Video[];
+  onVideoFound: (index: number) => void;
+  onAllFailed: () => void;
 }
 
 declare global {
   interface Window {
-    onYouTubeIframeAPIReady: () => void;
     YT: any;
+    onYouTubeIframeAPIReady: () => void;
   }
 }
 
-const YouTubePlayer: React.FC<Props> = ({ videos, onFallback, onPlayerReady }) => {
+const YouTubePlayer: React.FC<Props> = ({ videoQueue, onVideoFound, onAllFailed }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlayerReady, setIsPlayerReady] = useState(false);
   
   const playerRef = useRef<any>(null);
   const timeoutRef = useRef<any>(null);
-  const isUnmountedRef = useRef(false);
+  const requestRef = useRef<any>(null);
 
-  const currentVideo = videos[currentIndex];
-
-  // Fix: Memoize ID to prevent regeneration on every render which causes infinite loop glitches
-  const divId = useMemo(() => {
-    return `yt-player-${currentVideo?.key || 'placeholder'}`;
-  }, [currentVideo?.key]);
+  // Use refs for callbacks to avoid stale closures in YouTube events
+  const onVideoFoundRef = useRef(onVideoFound);
+  const onAllFailedRef = useRef(onAllFailed);
 
   useEffect(() => {
-    isUnmountedRef.current = false;
-    return () => {
-      isUnmountedRef.current = true;
-    };
-  }, []);
+    onVideoFoundRef.current = onVideoFound;
+    onAllFailedRef.current = onAllFailed;
+  });
+  
+  // Use current video key or null
+  const currentVideo = videoQueue[currentIndex];
+  const videoKey = currentVideo?.key;
+  const divId = useMemo(() => `yt-player-${videoKey || 'placeholder'}`, [videoKey]);
 
-  const loadNext = useCallback(() => {
-    if (isUnmountedRef.current) return;
-    
-    // Defer state update to next tick to avoid conflicts during error handling
-    setTimeout(() => {
-        if (isUnmountedRef.current) return;
-        
-        if (currentIndex < videos.length - 1) {
-          console.log(`Video ${currentVideo?.key} failed or timed out. Trying next...`);
-          setIsPlayerReady(false); 
-          setCurrentIndex((prev) => prev + 1);
-        } else {
-          console.log('All videos failed. Triggering fallback.');
-          if (videos.length > 0) {
-            onFallback(`https://www.youtube.com/watch?v=${videos[0].key}`);
-          } else {
-            onFallback('');
-          }
-        }
-    }, 0);
-  }, [currentIndex, videos, currentVideo, onFallback]);
-
-  // 1. Load YouTube API Script (Once)
+  // Reset index if the queue changes (e.g. language switch)
   useEffect(() => {
+    setCurrentIndex(0);
+    setIsPlayerReady(false);
+  }, [videoQueue]);
+
+  useEffect(() => {
+    // 1. Load API if not present
     if (!window.YT) {
       const tag = document.createElement('script');
       tag.src = 'https://www.youtube.com/iframe_api';
-      const firstScriptTag = document.getElementsByTagName('script')[0];
-      firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
+      tag.async = true;
+      if (!document.querySelector('script[src="https://www.youtube.com/iframe_api"]')) {
+        document.body.appendChild(tag);
+      }
     }
   }, []);
 
-  // 2. Initialize Player for the current video
   useEffect(() => {
-    if (!currentVideo) return;
+    // If no key or queue exhausted, report failure
+    if (!videoKey) {
+        if (videoQueue.length > 0 && currentIndex >= videoQueue.length) {
+            onAllFailedRef.current();
+        } else if (videoQueue.length === 0) {
+            // Empty queue, do nothing or report fail
+            // onAllFailedRef.current(); 
+        }
+        return;
+    }
 
-    // Reset state
     setIsPlayerReady(false);
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
 
-    const initPlayer = () => {
-      if (isUnmountedRef.current) return;
+    // Function to try next video safely
+    const tryNext = () => {
+        // Clear any pending timeouts
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
+        if (requestRef.current) cancelAnimationFrame(requestRef.current);
 
-      // Check if target div exists
-      const el = document.getElementById(divId);
-      if (!el) return; // Wait for React to mount the div
-
-      if (window.YT && window.YT.Player) {
-        // Double check cleanup
+        // Safe destroy
         if (playerRef.current) {
             try { playerRef.current.destroy(); } catch(e) {}
             playerRef.current = null;
         }
-
-        try {
-            playerRef.current = new window.YT.Player(divId, {
-                height: '100%',
-                width: '100%',
-                videoId: currentVideo.key,
-                playerVars: {
-                  autoplay: 0,
-                  modestbranding: 1,
-                  rel: 0,
-                  origin: window.location.origin, // Important for CORS/Security
-                  controls: 1,
-                  playsinline: 1,
-                  iv_load_policy: 3, 
-                  disablekb: 1,
-                  fs: 0
-                },
-                events: {
-                  onReady: () => {
-                    if (isUnmountedRef.current) return;
-                    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-                    setIsPlayerReady(true);
-                    onPlayerReady(); // Notify parent
-                  },
-                  onError: (event: any) => {
-                    if (isUnmountedRef.current) return;
-                    // Wrap in try-catch to avoid crashing if API sends weird error objects
-                    try {
-                        const code = event.data;
-                        console.warn(`YouTube Error ${code} for video ${currentVideo.key}`);
-                        loadNext();
-                    } catch (e) {
-                        loadNext();
-                    }
-                  },
-                },
+        
+        const nextIndex = currentIndex + 1;
+        if (nextIndex < videoQueue.length) {
+            console.log(`Video ${videoKey} failed/timed out. Trying next...`);
+            requestRef.current = requestAnimationFrame(() => {
+                 setCurrentIndex(nextIndex);
             });
-        } catch (e) {
-            console.error("YouTube Player Init Error", e);
-            loadNext();
+        } else {
+            console.log("All videos failed.");
+            onAllFailedRef.current();
         }
+    };
 
-        // Safety timeout
-        timeoutRef.current = setTimeout(() => {
-           if (!isPlayerReady && !isUnmountedRef.current) {
-               console.warn('Player timeout, skipping...');
-               loadNext();
-           }
-        }, 8000); // Increased timeout slightly
+    const initPlayer = () => {
+      const el = document.getElementById(divId);
+      if (!el || !window.YT || !window.YT.Player) {
+         timeoutRef.current = setTimeout(initPlayer, 100);
+         return;
+      }
 
-      } else {
-        // Poll API
-        setTimeout(initPlayer, 100);
+      // 2. Set strict timeout for playback start (2.5 seconds)
+      timeoutRef.current = setTimeout(() => {
+         tryNext();
+      }, 2500); 
+
+      try {
+        playerRef.current = new window.YT.Player(divId, {
+            height: '100%',
+            width: '100%',
+            videoId: videoKey,
+            playerVars: {
+                autoplay: 1,
+                mute: 1,
+                modestbranding: 1,
+                rel: 0,
+                origin: window.location.origin,
+                controls: 1,
+                playsinline: 1,
+                iv_load_policy: 3,
+                disablekb: 1,
+                fs: 0
+            },
+            events: {
+                onReady: (event: any) => {
+                    event.target.mute();
+                    event.target.playVideo();
+                },
+                onStateChange: (event: any) => {
+                    // State 1 = Playing, 3 = Buffering
+                    if (event.data === 1 || event.data === 3) {
+                        if (timeoutRef.current) clearTimeout(timeoutRef.current);
+                        setIsPlayerReady(true);
+                        // Notify parent that we found a working video at this index
+                        onVideoFoundRef.current(currentIndex);
+                    }
+                },
+                onError: (e: any) => {
+                    console.warn(`YouTube Error ${e.data} for ${videoKey}`);
+                    tryNext();
+                }
+            }
+        });
+      } catch (e) {
+        console.error("Player creation failed", e);
+        tryNext();
       }
     };
 
-    // Small delay to ensure DOM is painted
-    const initTimer = setTimeout(initPlayer, 50);
+    const startTimer = setTimeout(initPlayer, 100);
 
     return () => {
-      clearTimeout(initTimer);
+      clearTimeout(startTimer);
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      if (requestRef.current) cancelAnimationFrame(requestRef.current);
       if (playerRef.current) {
-        try { 
-            const player = playerRef.current;
-            playerRef.current = null; 
-            player.destroy(); 
-        } catch(e) {}
+        try { playerRef.current.destroy(); } catch(e) {}
+        playerRef.current = null;
       }
     };
-  }, [currentVideo, divId, loadNext, onPlayerReady]); 
-
-  if (!currentVideo) return null;
+  }, [videoKey, divId, currentIndex, videoQueue.length]);
 
   return (
     <PlayerContainer>
@@ -225,11 +221,7 @@ const YouTubePlayer: React.FC<Props> = ({ videos, onFallback, onPlayerReady }) =
         </SkeletonOverlay>
       )}
       <VideoWrapper $visible={isPlayerReady}>
-          <div 
-            id={divId} 
-            key={currentVideo.key} 
-            style={{width: '100%', height: '100%'}} 
-          />
+          <div id={divId} style={{width: '100%', height: '100%'}} />
       </VideoWrapper>
     </PlayerContainer>
   );

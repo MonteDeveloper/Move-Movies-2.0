@@ -1,4 +1,4 @@
-import 'styled-components';
+import React from 'react';
 
 export interface Movie {
   id: number;
@@ -15,6 +15,7 @@ export interface Movie {
   media_type?: 'movie' | 'tv';
   original_language?: string;
   original_title?: string;
+  original_name?: string; // For TV shows
   origin_country?: string[];
   skippedAt?: number; // Timestamp for when item was skipped
 }
@@ -114,6 +115,11 @@ export interface ReleaseDatesResult {
   release_dates: ReleaseDate[];
 }
 
+export interface Keyword {
+  id: number;
+  name: string;
+}
+
 export interface MediaDetail extends Movie {
   genres: { id: number; name: string }[];
   runtime?: number; // Minutes
@@ -135,6 +141,10 @@ export interface MediaDetail extends Movie {
   };
   recommendations?: {
     results: Movie[];
+  };
+  keywords?: {
+    keywords?: Keyword[]; // For Movies
+    results?: Keyword[];  // For TV
   };
   tagline?: string;
   production_companies?: ProductionCompany[];
@@ -160,6 +170,10 @@ export interface FilterState {
   includeGenres: number[];
   excludeGenres: number[];
   
+  // Keywords (Dynamic from API)
+  includeKeywords: Keyword[];
+  excludeKeywords: Keyword[];
+
   // Providers
   includeProviders: number[];
   excludeProviders: number[];
@@ -226,26 +240,3 @@ export const COUNTRIES = [
   { iso: 'CN', name: 'China' },
   { iso: 'IN', name: 'India' },
 ];
-
-declare module 'styled-components' {
-  export interface DefaultTheme extends ThemeType {}
-}
-
-declare module 'react-window' {
-  import { Component, CSSProperties } from 'react';
-  export class FixedSizeList extends Component<any> {}
-  export class FixedSizeGrid extends Component<any> {}
-  export interface ListChildComponentProps<T = any> {
-    index: number;
-    style: CSSProperties;
-    data: T;
-    isScrolling?: boolean;
-  }
-  export interface GridChildComponentProps<T = any> {
-    columnIndex: number;
-    rowIndex: number;
-    style: CSSProperties;
-    data: T;
-    isScrolling?: boolean;
-  }
-}

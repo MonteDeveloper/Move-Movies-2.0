@@ -1,9 +1,12 @@
+
 import React, { useState, useEffect } from 'react';
 import styled, { css } from 'styled-components';
 import { Movie } from '../types';
 import { useTranslation } from 'react-i18next';
 import { useModal } from '../contexts/ModalContext';
 import { SkeletonPulse } from './Skeleton';
+import { useLanguage } from '../contexts/LanguageContext';
+import { tmdbService } from '../services/tmdbService';
 
 interface CardProps {
   $fluid?: boolean;
@@ -98,13 +101,21 @@ const SelectionOverlay = styled.div`
 const MovieCard: React.FC<Props> = ({ movie, fluid, selected, onSelect }) => {
   const { t } = useTranslation();
   const { openDetail } = useModal();
+  const { currentLanguage } = useLanguage();
   const [imgSrc, setImgSrc] = useState<string | null>(null);
   const [hasError, setHasError] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
+  
+  // Title State for Fallback Logic
+  const [displayTitle, setDisplayTitle] = useState(movie.title || movie.name);
 
   useEffect(() => {
     setIsLoaded(false);
     setHasError(false);
+    
+    // Reset title immediately when movie changes
+    setDisplayTitle(movie.title || movie.name);
+
     if (movie.poster_path) {
       setImgSrc(`https://image.tmdb.org/t/p/w342${movie.poster_path}`);
     } else if (movie.backdrop_path) {
@@ -114,7 +125,53 @@ const MovieCard: React.FC<Props> = ({ movie, fluid, selected, onSelect }) => {
       setHasError(true);
       setIsLoaded(true); // Treat "no image" as loaded state so placeholder shows
     }
-  }, [movie]);
+
+    // Title Fallback Logic
+    const checkTitleFallback = async () => {
+        const currentLang = currentLanguage;
+        const origLang = movie.original_language;
+        const title = movie.title || movie.name;
+        const original = movie.original_title || movie.original_name;
+
+        // Strict alignment with DetailPage logic for Title Update
+        const isTitleSame = title === original;
+        
+        // We only care about fetching if we might need to update the title.
+        const needsFallback = (
+           currentLang !== 'en' &&
+           origLang !== 'en' && 
+           origLang !== currentLang &&
+           isTitleSame
+        );
+
+        if (needsFallback) {
+            try {
+                // Infer media type if missing to ensure we hit the correct endpoint
+                let type = movie.media_type;
+                if (!type) {
+                     if (movie.name) type = 'tv'; // Likely TV if it has 'name' property
+                     else type = 'movie'; // Default to movie otherwise
+                }
+                
+                const enData = await tmdbService.getDetails(movie.id, type, 'en-US');
+                const enTitle = enData.title || enData.name;
+                
+                // If English title is different from original (meaning English has a translation)
+                // AND the current title is effectively the original (untranslated)
+                // Then use English title.
+                if (enTitle && enTitle !== original) {
+                    setDisplayTitle(enTitle);
+                }
+            } catch (e) {
+                // Log warning but don't break UI
+                console.warn("Title fallback fetch failed for movie", movie.id, e);
+            }
+        }
+    };
+
+    checkTitleFallback().catch(e => console.error("MovieCard Async Error", e));
+
+  }, [movie, currentLanguage]);
 
   const handleError = () => {
     // Fallback chain: Poster -> Backdrop -> Placeholder
@@ -142,7 +199,13 @@ const MovieCard: React.FC<Props> = ({ movie, fluid, selected, onSelect }) => {
 
   const handleCardClick = (e: React.MouseEvent) => {
     if (!onSelect) {
-      openDetail(movie.id, movie.media_type || 'movie');
+      // Use helper to infer type if missing
+      let type = movie.media_type;
+      if (!type) {
+           if (movie.name) type = 'tv';
+           else type = 'movie';
+      }
+      openDetail(movie.id, type);
     } else {
       onSelect();
     }
@@ -161,7 +224,7 @@ const MovieCard: React.FC<Props> = ({ movie, fluid, selected, onSelect }) => {
         {!hasError && imgSrc && (
           <Poster 
             src={imgSrc} 
-            alt={movie.title || movie.name} 
+            alt={displayTitle} 
             loading="lazy"
             onLoad={() => setIsLoaded(true)}
             onError={handleError}
@@ -181,7 +244,7 @@ const MovieCard: React.FC<Props> = ({ movie, fluid, selected, onSelect }) => {
           <Placeholder>{t('imageNotAvailable')}</Placeholder>
         )}
       </PosterContainer>
-      <Title>{movie.title || movie.name}</Title>
+      <Title>{displayTitle}</Title>
       <Rating>
          <i className="fa-solid fa-star" style={{color: 'gold', fontSize: 10}}></i> 
          {movie.vote_average.toFixed(1)}

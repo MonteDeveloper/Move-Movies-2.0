@@ -2,17 +2,43 @@
 import React, { useEffect, useState, useLayoutEffect, useRef, memo, useCallback } from 'react';
 import styled from 'styled-components';
 import { tmdbService } from '../services/tmdbService';
-import { MediaDetail, CastMember, Review, WatchProviders, CrewMember, Video } from '../types';
+import { MediaDetail, CastMember, Review, WatchProviders, CrewMember, Video, Keyword } from '../types';
 import { useFavorites } from '../contexts/FavoritesContext';
 import { useTranslation } from 'react-i18next';
 import { useLanguage } from '../contexts/LanguageContext';
 import { SkeletonPulse } from '../components/Skeleton';
 import { formatDate } from '../utils/formatDate';
-import MovieCard from '../components/MovieCard';
 import { getLanguageName, getCountryName } from '../utils/formatLocal';
-import { FixedSizeList as List, ListChildComponentProps } from 'react-window';
-import AutoSizer from 'react-virtualized-auto-sizer';
-import YouTubePlayer from '@/components/YouTubePlayer';
+import * as ReactWindow from 'react-window';
+import * as AutoSizerModule from 'react-virtualized-auto-sizer';
+import YouTubePlayer from '../components/YouTubePlayer';
+import MovieCard from '../components/MovieCard';
+
+// Robust safe resolution of ReactWindow components
+let List: any = null;
+try {
+  if (ReactWindow) {
+    List = (ReactWindow as any).FixedSizeList || (ReactWindow as any).default?.FixedSizeList;
+  }
+} catch (e) {
+  console.error("ReactWindow resolution error", e);
+}
+
+// Robust safe resolution for AutoSizer with fallback
+const resolveAutoSizer = () => {
+    try {
+        if ((AutoSizerModule as any).default) return (AutoSizerModule as any).default;
+        if (typeof AutoSizerModule === 'function' || typeof AutoSizerModule === 'object') return AutoSizerModule;
+    } catch (e) { console.error(e); }
+    return ({ children }: any) => children({ width: 300, height: 300 });
+};
+const AutoSizer = resolveAutoSizer();
+
+interface ListChildComponentProps {
+  index: number;
+  style: React.CSSProperties;
+  data: any;
+}
 
 interface DetailPageProps {
   id: number;
@@ -24,7 +50,6 @@ interface DetailPageProps {
 }
 
 // 1) Scroll Locking: Conditional overflow based on props to lock background when sub-modals open
-// Changed width to 100% to avoid scrollbar width issues causing layout shifts/overflows
 const Container = styled.div<{ $zIndex: number; $isLocked: boolean }>`
   position: fixed;
   top: 0;
@@ -129,8 +154,7 @@ const StickyVideoContainer = styled.div<{ $isSticky: boolean }>`
   z-index: 90;
   background: black;
   box-shadow: ${props => props.$isSticky ? '0 4px 20px rgba(0,0,0,0.5)' : 'none'};
-  margin-bottom: 20px;
-  overflow: hidden; /* Ensures content doesn't overflow */
+  overflow: hidden;
 
   /* Force children to fill the padding-box */
   & > * {
@@ -142,11 +166,62 @@ const StickyVideoContainer = styled.div<{ $isSticky: boolean }>`
   }
 `;
 
+const SpoilerPlaceholder = styled.div`
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #111;
+  color: #ccc;
+  cursor: pointer;
+  z-index: 5;
+  
+  &:hover {
+    background: #1a1a1a;
+    color: white;
+  }
+`;
+
+const SpoilerIcon = styled.div`
+  font-size: 40px;
+  margin-bottom: 10px;
+  color: ${({ theme }) => theme.primary};
+`;
+
+const TrailerBar = styled.button`
+  width: 100%;
+  padding: 15px;
+  background: #222;
+  color: white;
+  border: none;
+  border-bottom: 1px solid #333;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-weight: bold;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.2s;
+  
+  &:hover {
+    background: #333;
+  }
+  
+  i {
+    color: red;
+    font-size: 18px;
+  }
+`;
+
 const BodyContent = styled.div`
   padding: 0 20px 80px 20px;
   position: relative;
   z-index: 10;
   background: ${({ theme }) => theme.background};
+  padding-top: 20px;
 `;
 
 const Title = styled.h1`
@@ -223,6 +298,16 @@ const ScrollContainer = styled.div`
   padding-bottom: 10px;
   scrollbar-width: none;
   &::-webkit-scrollbar { display: none; }
+`;
+
+const KeywordChip = styled.div`
+  padding: 8px 14px;
+  background: #2a2a2a;
+  border-radius: 20px;
+  font-size: 12px;
+  white-space: nowrap;
+  color: #ccc;
+  border: 1px solid #444;
 `;
 
 const CastMemberItem = styled.div`
@@ -717,17 +802,22 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
 
   const [detail, setDetail] = useState<MediaDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(true);
+  
+  // Independent Loading States
   const [cast, setCast] = useState<CastMember[]>([]);
   const [crew, setCrew] = useState<CrewMember[]>([]);
   const [loadingCast, setLoadingCast] = useState(true);
+  
   const [providers, setProviders] = useState<WatchProviders | null>(null);
   const [loadingProviders, setLoadingProviders] = useState(true);
   
-  // Video Queue State
+  // VIDEO STATES
   const [videoQueue, setVideoQueue] = useState<Video[]>([]);
-  const [videoFallbackUrl, setVideoFallbackUrl] = useState<string | null>(null);
-  const [loadingVideo, setLoadingVideo] = useState(true);
-  const [isPlayerReady, setIsPlayerReady] = useState(false);
+  const [bestTrailer, setBestTrailer] = useState<Video | null>(null);
+  const [allVideosFailed, setAllVideosFailed] = useState(false);
+  const [isPlayerVisible, setIsPlayerVisible] = useState(false);
+  const [playingVideoKey, setPlayingVideoKey] = useState<string | null>(null);
+  const [spoilerPlaceholder, setSpoilerPlaceholder] = useState<{season: number; video: Video} | null>(null);
   
   const [recommendations, setRecommendations] = useState<any[]>([]);
   const [loadingRecommendations, setLoadingRecommendations] = useState(true);
@@ -738,6 +828,7 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
 
   const [gallery, setGallery] = useState<any[]>([]);
   const [loadingGallery, setLoadingGallery] = useState(true);
+  
   const [galleryIndex, setGalleryIndex] = useState<number | null>(null);
   const [loadingGalleryImage, setLoadingGalleryImage] = useState(false);
   
@@ -758,42 +849,61 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
   // Back to top state
   const [showScrollTop, setShowScrollTop] = useState(false);
 
-  // Stable callback for video fallback to prevent re-renders
-  const handleVideoFallback = useCallback((url: string) => {
-      setVideoFallbackUrl(url);
-  }, []);
-
-  const handlePlayerReady = useCallback(() => {
-    setIsPlayerReady(true);
-  }, []);
-
   useEffect(() => {
     let mounted = true;
     const mediaType = type;
     const numId = Number(id);
 
+    // Initial Resets
     setDetail(null); setLoadingDetail(true);
     setCast([]); setCrew([]); setLoadingCast(true);
     setProviders(null); setLoadingProviders(true);
-    
-    // Reset video state
-    setVideoQueue([]); setVideoFallbackUrl(null); setLoadingVideo(true); setIsPlayerReady(false);
+    // Video Reset
+    setVideoQueue([]); setBestTrailer(null); setAllVideosFailed(false); setIsPlayerVisible(false);
+    setPlayingVideoKey(null); setSpoilerPlaceholder(null);
 
     setRecommendations([]); setLoadingRecommendations(true);
     setGallery([]); setLoadingGallery(true);
     setSeasonEpisodes({}); setOpenSeasonNumber(null);
     setHeroImage(null); setHeroError(false);
     
+    // Independent Fetch Reviews
     fetchReviews('app');
 
     const loadData = async () => {
          try {
+             // 1. Fetch Main Details (Blocking only for Hero/Header)
              let detailsData = await tmdbService.getDetails(numId, mediaType);
              
-             if (!detailsData.overview) {
+             // --- TITLE & OVERVIEW FALLBACK LOGIC ---
+             const currentLang = currentLanguage;
+             const origLang = detailsData.original_language;
+             const title = detailsData.title || detailsData.name;
+             const originalTitle = detailsData.original_title || detailsData.original_name;
+             const isTitleSame = title === originalTitle;
+
+             const needsEnFallback = !detailsData.overview || (
+                 currentLang !== 'en' && 
+                 origLang !== 'en' && 
+                 origLang !== currentLang && 
+                 isTitleSame
+             );
+
+             if (needsEnFallback) {
                  try {
                     const enDetails = await tmdbService.getDetails(numId, mediaType, 'en-US');
-                    if (enDetails.overview) detailsData.overview = enDetails.overview;
+                    // Fallback Overview
+                    if (!detailsData.overview && enDetails.overview) {
+                         detailsData.overview = enDetails.overview;
+                    }
+                    // Fallback Title
+                    if (isTitleSame) {
+                        const enTitle = enDetails.title || enDetails.name;
+                        if (enTitle && enTitle !== originalTitle) {
+                             if (detailsData.title) detailsData.title = enTitle;
+                             if (detailsData.name) detailsData.name = enTitle;
+                        }
+                    }
                  } catch {}
              }
              
@@ -801,104 +911,200 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
                  setDetail(detailsData);
                  setLoadingDetail(false);
                  
+                 // Handle Hero Image
                  if (detailsData.backdrop_path) {
                     setHeroImage(`https://image.tmdb.org/t/p/original${detailsData.backdrop_path}`);
                  } else if (detailsData.poster_path) {
                     setHeroImage(`https://image.tmdb.org/t/p/original${detailsData.poster_path}`);
                  } else {
-                     try {
-                        const imgs = await tmdbService.getImages(numId, mediaType);
-                        if (imgs.backdrops.length > 0) setHeroImage(`https://image.tmdb.org/t/p/original${imgs.backdrops[0].file_path}`);
-                        else if (imgs.posters.length > 0) setHeroImage(`https://image.tmdb.org/t/p/original${imgs.posters[0].file_path}`);
-                        else setHeroError(true);
-                     } catch { setHeroError(true); }
+                     // Try images independently
+                     tmdbService.getImages(numId, mediaType).then(imgs => {
+                         if (mounted) {
+                             if (imgs.backdrops.length > 0) setHeroImage(`https://image.tmdb.org/t/p/original${imgs.backdrops[0].file_path}`);
+                             else if (imgs.posters.length > 0) setHeroImage(`https://image.tmdb.org/t/p/original${imgs.posters[0].file_path}`);
+                             else setHeroError(true);
+                         }
+                     }).catch(() => { if(mounted) setHeroError(true); });
                  }
              }
 
-             // --- ADVANCED TRAILER SELECTION ---
-             // Sort Helper
-             const sortVideos = (vids: Video[]) => {
-                 return vids
-                     .filter(v => v.site === 'YouTube' && v.type === 'Trailer')
-                     .sort((a, b) => {
-                         // Official first
-                         if (a.official !== b.official) return a.official ? -1 : 1;
-                         // Recent first
-                         const dateA = a.published_at ? new Date(a.published_at).getTime() : 0;
-                         const dateB = b.published_at ? new Date(b.published_at).getTime() : 0;
-                         return dateB - dateA;
-                     });
-             };
-
-             const appLang = currentLanguage === 'it' ? 'it-IT' : 'en-US';
-             const fallbackLang = 'en-US';
-             const origLang = detailsData.original_language;
-
-             let res1, res2, res3, res4;
-
-             // TV: fetch ONLY season 1 to avoid spoilers.
-             // Prioritize: App Lang -> English -> Original Language
-             if (mediaType === 'tv') {
-                  const p1 = tmdbService.getSeasonVideos(numId, 1, appLang);
-                  const p2 = tmdbService.getSeasonVideos(numId, 1, fallbackLang);
-                  const p3 = (origLang && origLang !== 'en' && origLang !== 'it') 
-                     ? tmdbService.getSeasonVideos(numId, 1, origLang) 
-                     : Promise.resolve({ results: [] });
-                  
-                  [res1, res2, res3] = await Promise.all([p1, p2, p3]);
-                  res4 = { results: [] }; 
-             } else {
-                  // Movies
-                  const p1 = tmdbService.getVideos(numId, mediaType, appLang);
-                  const p2 = tmdbService.getVideos(numId, mediaType, fallbackLang);
-                  const p3 = (origLang && origLang !== 'en' && origLang !== 'it') 
-                     ? tmdbService.getVideos(numId, mediaType, origLang) 
-                     : Promise.resolve({ results: [] });
-                  const p4 = tmdbService.getVideos(numId, mediaType, undefined as any);
-                  [res1, res2, res3, res4] = await Promise.all([p1, p2, p3, p4]);
-             }
-
-             const list1 = sortVideos((res1.results || []) as Video[]);
-             const list2 = sortVideos((res2.results || []) as Video[]);
-             const list3 = sortVideos((res3.results || []) as Video[]);
-             const list4 = sortVideos((res4.results || []) as Video[]);
-
-             // Priority: AppLang -> English -> Original -> Others
-             // Concatenate sorted lists to maintain priority buckets.
-             const allCandidates = [...list1, ...list2, ...list3, ...list4];
+             // --- INDEPENDENT ASYNC FETCHES ---
              
-             // Deduplicate
-             const uniqueCandidates = Array.from(new Map(allCandidates.map(v => [v.key, v])).values());
+             // 2. Videos Logic
+             (async () => {
+                 try {
+                     const seenKeys = new Set<string>();
 
-             if (mounted) {
-                 setVideoQueue(uniqueCandidates);
-                 setLoadingVideo(false);
-             }
+                     const calculateScore = (v: Video, langScore: number) => {
+                         let score = langScore;
+                         if (v.official) score += 500;
+                         if (v.type === 'Trailer') score += 200;
+                         else if (v.type === 'Teaser') score += 50;
+                         // Date bonus
+                         if (v.published_at) score += new Date(v.published_at).getTime() / 1e13; 
+                         return score;
+                     };
 
-             const [cred, prov, recs, imgs] = await Promise.all([
-                 tmdbService.getCredits(numId, mediaType),
-                 tmdbService.getWatchProviders(numId, mediaType),
-                 tmdbService.getRecommendations(numId, mediaType),
-                 tmdbService.getImages(numId, mediaType)
-             ]);
+                     const fetchAndScore = async (lang: string, sNumber?: number) => {
+                         let res: Video[] = [];
+                         if (mediaType === 'tv') {
+                             if (sNumber !== undefined) {
+                                try {
+                                    const s = await tmdbService.getSeasonVideos(numId, sNumber, lang);
+                                    if(s.results) res.push(...s.results);
+                                } catch {}
+                             } else {
+                                // Fallback general fetch logic if season number not provided specifically
+                                try {
+                                    const main = await tmdbService.getVideos(numId, mediaType, lang);
+                                    if (main.results) res.push(...main.results);
+                                } catch {}
+                             }
+                         } else {
+                             try {
+                                const v = await tmdbService.getVideos(numId, mediaType, lang);
+                                if(v.results) res.push(...v.results);
+                             } catch {}
+                         }
+                         return res;
+                     };
 
-             if (mounted) {
-                 setCast(cred.cast || []);
-                 setCrew(cred.crew || []);
-                 setLoadingCast(false);
-                 setProviders(prov);
-                 setLoadingProviders(false);
-                 setRecommendations(recs || []);
-                 setLoadingRecommendations(false);
-                 setGallery(imgs.backdrops?.slice(0, 15) || []);
-                 setLoadingGallery(false);
-             }
+                     const processCandidates = async (candidates: Video[]) => {
+                        const scored = candidates.map(v => {
+                             let langScore = 0;
+                             if (v.iso_639_1 === (currentLanguage === 'it' ? 'it' : 'en')) langScore = 3000;
+                             else if (v.iso_639_1 === 'en') langScore = 2000;
+                             else langScore = 1000;
+                             return { ...v, score: calculateScore(v, langScore) };
+                         });
+
+                         scored.sort((a, b) => b.score - a.score);
+
+                         const unique: Video[] = [];
+                         for (const v of scored) {
+                             if (!seenKeys.has(v.key)) {
+                                 seenKeys.add(v.key);
+                                 unique.push(v);
+                             }
+                         }
+                         return unique;
+                     };
+
+                     // --- STRATEGY ---
+                     // Movie: Just fetch.
+                     // TV: Prioritize Season 1. If empty, go to Anti-Spoiler Logic.
+
+                     let finalQueue: Video[] = [];
+                     
+                     if (mediaType === 'tv') {
+                        // 1. Fetch S1 & General (General often contains S1/Series trailers)
+                        const p1_s1 = fetchAndScore(currentLanguage === 'it' ? 'it-IT' : 'en-US', 1);
+                        const p1_main = fetchAndScore(currentLanguage === 'it' ? 'it-IT' : 'en-US'); // General
+                        
+                        const p2_s1 = currentLanguage !== 'en' ? fetchAndScore('en-US', 1) : Promise.resolve([]);
+                        const p2_main = currentLanguage !== 'en' ? fetchAndScore('en-US') : Promise.resolve([]);
+
+                        const p3_s1 = (detailsData.original_language && detailsData.original_language !== 'en' && detailsData.original_language !== currentLanguage) 
+                            ? fetchAndScore(detailsData.original_language, 1) : Promise.resolve([]);
+                        
+                        const results = await Promise.all([p1_s1, p1_main, p2_s1, p2_main, p3_s1]);
+                        const candidates = results.flat();
+                        
+                        finalQueue = await processCandidates(candidates);
+                        
+                        // If NO safe S1/General trailers found, try finding latest season
+                        if (finalQueue.length === 0) {
+                            // Find latest season number
+                            const seasons = detailsData.seasons || [];
+                            const maxSeason = seasons.reduce((max, s) => (s.season_number > max ? s.season_number : max), 0);
+                            
+                            if (maxSeason > 1) {
+                                // Fetch latest season trailers
+                                const p1_latest = fetchAndScore(currentLanguage === 'it' ? 'it-IT' : 'en-US', maxSeason);
+                                const p2_latest = currentLanguage !== 'en' ? fetchAndScore('en-US', maxSeason) : Promise.resolve([]);
+                                
+                                const latestRes = await Promise.all([p1_latest, p2_latest]);
+                                const latestCandidates = latestRes.flat();
+                                const sortedLatest = await processCandidates(latestCandidates);
+                                
+                                if (sortedLatest.length > 0 && mounted) {
+                                    setSpoilerPlaceholder({ season: maxSeason, video: sortedLatest[0] });
+                                    setBestTrailer(sortedLatest[0]); // Used for external link
+                                    // Queue remains empty until user clicks placeholder
+                                } else if (mounted) {
+                                    setAllVideosFailed(true);
+                                }
+                            } else if (mounted) {
+                                setAllVideosFailed(true);
+                            }
+                        } else if (mounted) {
+                            setVideoQueue(finalQueue);
+                            setBestTrailer(finalQueue[0]);
+                        }
+
+                     } else {
+                         // Movie Logic (Standard)
+                         const p1 = fetchAndScore(currentLanguage === 'it' ? 'it-IT' : 'en-US');
+                         const p2 = currentLanguage !== 'en' ? fetchAndScore('en-US') : Promise.resolve([]);
+                         const p3 = (detailsData.original_language && detailsData.original_language !== 'en' && detailsData.original_language !== currentLanguage) 
+                            ? fetchAndScore(detailsData.original_language) : Promise.resolve([]);
+
+                         const results = await Promise.all([p1, p2, p3]);
+                         finalQueue = await processCandidates(results.flat());
+                         
+                         if (mounted) {
+                             if (finalQueue.length > 0) {
+                                 setVideoQueue(finalQueue);
+                                 setBestTrailer(finalQueue[0]);
+                             } else {
+                                 setAllVideosFailed(true);
+                             }
+                         }
+                     }
+
+                 } catch(e) { 
+                     console.error("Video Fetch Error", e);
+                     if (mounted) setAllVideosFailed(true);
+                 }
+             })();
+
+             // 3. Credits (Independent)
+             tmdbService.getCredits(numId, mediaType).then(cred => {
+                 if (mounted) {
+                     setCast(cred.cast || []);
+                     setCrew(cred.crew || []);
+                     setLoadingCast(false);
+                 }
+             }).catch(() => mounted && setLoadingCast(false));
+
+             // 4. Providers (Independent)
+             tmdbService.getWatchProviders(numId, mediaType).then(prov => {
+                 if (mounted) {
+                     setProviders(prov);
+                     setLoadingProviders(false);
+                 }
+             }).catch(() => mounted && setLoadingProviders(false));
+
+             // 5. Recommendations (Independent)
+             tmdbService.getRecommendations(numId, mediaType).then(recs => {
+                 if (mounted) {
+                     setRecommendations(recs || []);
+                     setLoadingRecommendations(false);
+                 }
+             }).catch(() => mounted && setLoadingRecommendations(false));
+
+             // 6. Images/Gallery (Independent)
+             tmdbService.getImages(numId, mediaType).then(imgs => {
+                 if (mounted) {
+                     setGallery(imgs.backdrops?.slice(0, 15) || []);
+                     setLoadingGallery(false);
+                 }
+             }).catch(() => mounted && setLoadingGallery(false));
 
          } catch (e) {
-             console.error(e);
+             console.error("DetailPage Main Data Error:", e);
              if(mounted) {
                  setLoadingDetail(false);
-                 setLoadingVideo(false);
                  setLoadingCast(false);
                  setLoadingProviders(false);
                  setLoadingRecommendations(false);
@@ -920,7 +1126,6 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
         const episodes = seasonEpisodes[season.season_number];
         const ep = episodes?.[eIdx];
         
-        // If image exists, set loading true (to show load spinner). If not, set false (to show fallback immediately).
         setLoadingEpisodeImage(!!ep?.still_path);
         setEpisodeImageError(false);
     }
@@ -979,7 +1184,6 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
   const handleEpisodeChange = async (newSIdx: number, newEIdx: number) => {
       setEpisodeModal({ sIdx: newSIdx, eIdx: newEIdx });
       
-      // Preload next image logic (optional)
       if (!detail?.seasons) return;
       const season = detail.seasons[newSIdx];
       const episodes = seasonEpisodes[season.season_number];
@@ -1101,6 +1305,14 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
         });
     }
   };
+
+  const activateSpoilerTrailer = () => {
+      if (spoilerPlaceholder) {
+          setVideoQueue([spoilerPlaceholder.video]);
+          setSpoilerPlaceholder(null);
+          // YouTube player will auto mount and play
+      }
+  };
   
   const getStatusText = (status: string | undefined) => {
       if (!status) return '';
@@ -1108,31 +1320,35 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
       return t(key);
   };
 
-  const renderEpisodesList = (episodes: any[], seasonIndex: number) => (
-     <div style={{background: '#1a1a1a', flex: 1, paddingBottom: 20}}>
-        <AutoSizer>
-            {({ height, width }) => (
-                <List
-                    height={height}
-                    itemCount={episodes.length}
-                    itemSize={90} 
-                    width={width}
-                    itemData={episodes}
-                    overscanCount={5}
-                >
-                   {({ data, index, style }) => (
-                       <EpisodeRow 
-                          data={data} 
-                          index={index} 
-                          style={style} 
-                          onClick={(idx) => openEpisodeDetail(seasonIndex, idx)} 
-                       />
-                   )}
-                </List>
-            )}
-        </AutoSizer>
-     </div>
-  );
+  const renderEpisodesList = (episodes: any[], seasonIndex: number) => {
+     if (!List) return <div style={{padding: 20, textAlign: 'center'}}>Error loading list view</div>;
+
+     return (
+        <div style={{background: '#1a1a1a', flex: 1, paddingBottom: 20}}>
+            <AutoSizer>
+                {({ height, width }: any) => (
+                    <List
+                        height={height}
+                        itemCount={episodes.length}
+                        itemSize={90} 
+                        width={width}
+                        itemData={episodes}
+                        overscanCount={5}
+                    >
+                    {({ data, index, style }: ListChildComponentProps) => (
+                        <EpisodeRow 
+                            data={data} 
+                            index={index} 
+                            style={style} 
+                            onClick={(idx) => openEpisodeDetail(seasonIndex, idx)} 
+                        />
+                    )}
+                    </List>
+                )}
+            </AutoSizer>
+        </div>
+     );
+  };
 
   const renderSeasons = () => {
       if (loadingDetail || !detail || detail.media_type !== 'tv' || !detail.seasons || detail.seasons.length === 0) return null;
@@ -1339,10 +1555,7 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
   };
 
   const isModalOpen = galleryIndex !== null || episodeModal !== null || openSeasonNumber !== null;
-
-  // Determine if we show player or fallback
-  const showPlayer = !loadingVideo && videoQueue.length > 0 && videoFallbackUrl === null;
-  const showFallback = !loadingVideo && videoFallbackUrl !== null && videoFallbackUrl !== '';
+  const keywords = detail?.keywords?.keywords || detail?.keywords?.results || [];
 
   return (
     <Container ref={containerRef} $zIndex={zIndex} $isLocked={isModalOpen}>
@@ -1383,8 +1596,9 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
             <span>{formatDate(detail.release_date || detail.first_air_date, currentLanguage)}</span>
             {detail.runtime && <span>{detail.runtime} {t('min')}</span>}
           </Meta>
+          {/* SAFE RENDERING WITH OPTIONAL CHAINING */}
           <div style={{display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap'}}>
-            {detail.genres.map(g => (
+            {detail.genres?.map(g => (
               <Tag key={g.id}>{t(`genre_${g.id}`, g.name)}</Tag>
             ))}
           </div>
@@ -1398,31 +1612,63 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
                 <i className={isSeen ? "fa-solid fa-eye" : "fa-regular fa-eye"}></i>
                 {isSeen ? t('removeFromWatched') : t('markAsWatched')}
               </ActionButton>
-              {showFallback && videoFallbackUrl && (
-                  <ActionButton 
-                      $primary 
-                      onClick={() => window.open(videoFallbackUrl!, '_blank', 'noopener,noreferrer')}
-                  >
-                     <i className="fa-brands fa-youtube"></i>
-                     {t('goToTrailer')}
-                  </ActionButton>
-              )}
+              
               <ActionButton onClick={handleShare}>
                  <i className="fa-solid fa-share-nodes"></i>
                  {t('share')}
               </ActionButton>
           </ButtonsRow>
+
+          {/* Fallback button shown ONLY if ALL embeds fail */}
+          {allVideosFailed && (
+              <div style={{ marginBottom: 15 }}>
+                  <ActionButton 
+                      $primary 
+                      style={{ width: '100%' }}
+                      onClick={() => bestTrailer && window.open(`https://www.youtube.com/watch?v=${bestTrailer.key}`, '_blank', 'noopener,noreferrer')}
+                      disabled={!bestTrailer}
+                  >
+                     <i className="fa-brands fa-youtube"></i>
+                     {t('goToTrailer')}
+                  </ActionButton>
+              </div>
+          )}
         </HeaderContent>
       )}
 
-      {showPlayer && (
-        <StickyVideoContainer $isSticky={isPlayerReady}>
-               <YouTubePlayer 
-                  videos={videoQueue} 
-                  onFallback={handleVideoFallback}
-                  onPlayerReady={handlePlayerReady}
-               />
+      {/* Video Player Section with Placeholder Logic */}
+      {!allVideosFailed && (videoQueue.length > 0 || spoilerPlaceholder) && (
+        <StickyVideoContainer $isSticky={isPlayerVisible}>
+           {spoilerPlaceholder && !isPlayerVisible ? (
+             <SpoilerPlaceholder onClick={activateSpoilerTrailer}>
+                 <SpoilerIcon><i className="fa-brands fa-youtube"></i></SpoilerIcon>
+                 <div>{t('watchSeasonTrailer', { season: spoilerPlaceholder.season })}</div>
+             </SpoilerPlaceholder>
+           ) : (
+             <YouTubePlayer 
+               videoQueue={videoQueue} 
+               onVideoFound={(index) => {
+                   setIsPlayerVisible(true);
+                   const video = videoQueue[index];
+                   if (video) setPlayingVideoKey(video.key);
+               }}
+               onAllFailed={() => {
+                   setAllVideosFailed(true);
+                   setIsPlayerVisible(false);
+               }}
+             />
+           )}
         </StickyVideoContainer>
+      )}
+
+      {/* Main Trailer Link Bar - Shown ONLY if player is visible AND playing video is NOT the best trailer */}
+      {isPlayerVisible && bestTrailer && playingVideoKey && playingVideoKey !== bestTrailer.key && (
+          <TrailerBar 
+              onClick={() => window.open(`https://www.youtube.com/watch?v=${bestTrailer.key}`, '_blank', 'noopener,noreferrer')}
+          >
+             <i className="fa-brands fa-youtube"></i>
+             {t('watchMainTrailer')}
+          </TrailerBar>
       )}
 
       <BodyContent>
@@ -1476,11 +1722,12 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
                    <InfoValue>{getStatusText(detail.status)}</InfoValue>
                 </InfoItem>
               )}
+              {/* SAFE RENDERING WITH OPTIONAL CHAINING */}
               {detail.origin_country && detail.origin_country.length > 0 && (
                  <InfoItem>
                    <InfoLabel>{t('originCountry')}</InfoLabel>
                    <InfoValue>{detail.origin_country.map(c => getCountryName(c, currentLanguage)).join(', ')}</InfoValue>
-                 </InfoItem>
+                </InfoItem>
               )}
               {detail.tagline && (
                  <InfoItem>
@@ -1497,6 +1744,7 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
                   <InfoValue>{formatDate(dates.local, currentLanguage)}</InfoValue>
                 </InfoItem>
               )}
+              {/* SAFE RENDERING WITH OPTIONAL CHAINING */}
               {detail.production_companies && detail.production_companies.length > 0 && (
                 <InfoItem>
                    <InfoLabel>{t('productionCompanies')}</InfoLabel>
@@ -1505,6 +1753,20 @@ const DetailPage: React.FC<DetailPageProps> = ({ id, type, zIndex, onClose, onCl
               )}
             </InfoGrid>
           </>
+        )}
+
+        {/* KEYWORDS SECTION */}
+        {keywords.length > 0 && (
+            <>
+                <SectionHeader>
+                   <SectionTitle>{t('keywords')}</SectionTitle>
+                </SectionHeader>
+                <ScrollContainer style={{marginBottom: 25}}>
+                    {keywords.map(k => (
+                        <KeywordChip key={k.id}>{k.name}</KeywordChip>
+                    ))}
+                </ScrollContainer>
+            </>
         )}
 
         {renderSeasons()}

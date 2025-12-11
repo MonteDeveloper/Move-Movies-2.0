@@ -1,6 +1,6 @@
 
 import { rateLimiter } from './rateLimiter';
-import { FilterState, MediaDetail, Movie, Season, WatchProviders, Review, CrewMember, CastMember, GENRES, COUNTRIES, ProviderInfo } from '../types';
+import { FilterState, MediaDetail, Movie, Season, WatchProviders, Review, CrewMember, CastMember, GENRES, COUNTRIES, ProviderInfo, Keyword } from '../types';
 
 const BASE_URL = 'https://api.themoviedb.org/3';
 
@@ -45,7 +45,8 @@ class TmdbService {
     return rateLimiter.enqueue(async () => {
       const res = await fetch(url.toString());
       if (!res.ok) {
-        throw new Error(`TMDB API Error: ${res.statusText}`);
+        // IMPROVED ERROR LOGGING: Include status code as statusText might be empty
+        throw new Error(`TMDB API Error: ${res.status} ${res.statusText || 'Unknown Status'}`);
       }
       return res.json();
     });
@@ -70,6 +71,20 @@ class TmdbService {
     });
     // Filter out people, keep movies/tv
     return data.results.filter(m => m.media_type === 'movie' || m.media_type === 'tv');
+  }
+
+  async searchKeywords(query: string): Promise<Keyword[]> {
+    if (!query) return [];
+    try {
+      const data = await this.fetch<{ results: Keyword[] }>('/search/keyword', {
+        query,
+        page: 1
+      });
+      return data.results || [];
+    } catch (e) {
+      console.error("Keyword search error", e);
+      return [];
+    }
   }
 
   async getTrending(type: 'movie' | 'tv'): Promise<Movie[]> {
@@ -115,6 +130,15 @@ class TmdbService {
       params.without_genres = filters.excludeGenres.join(','); // AND for exclusion
     }
 
+    // KEYWORD LOGIC
+    if (filters.includeKeywords.length > 0) {
+      // using pipe for OR logic on keywords inclusion, similar to genres
+      params.with_keywords = filters.includeKeywords.map(k => k.id).join('|'); 
+    }
+    if (filters.excludeKeywords.length > 0) {
+      params.without_keywords = filters.excludeKeywords.map(k => k.id).join(',');
+    }
+
     // PROVIDER LOGIC
     if (filters.includeProviders.length > 0) {
       params.with_watch_providers = filters.includeProviders.join('|');
@@ -156,7 +180,7 @@ class TmdbService {
   // CORE Details (lightweight but includes release dates for local info)
   async getDetails(id: number, type: 'movie' | 'tv', language?: string): Promise<MediaDetail> {
     const params: any = {
-      append_to_response: 'release_dates,external_ids'
+      append_to_response: 'release_dates,external_ids,keywords'
     };
     if (language) params.language = language;
     const data = await this.fetch<MediaDetail>(`/${type}/${id}`, params);

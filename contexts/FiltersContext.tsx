@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState } from 'react';
 import { FilterState } from '../types';
 
@@ -13,6 +14,8 @@ const defaultFilters: FilterState = {
   voteAverageMin: 0,
   includeGenres: [],
   excludeGenres: [],
+  includeKeywords: [],
+  excludeKeywords: [],
   includeProviders: [],
   excludeProviders: [],
   runtimeRange: [60, 240], // Default min runtime set to 60
